@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# data & artifacts — never commit (course requires code-only ZIP)
+data/raw/
+data/cache/
+outputs/
+*.pt
+*.npz
+*.mp4
+yolov8*.pt
