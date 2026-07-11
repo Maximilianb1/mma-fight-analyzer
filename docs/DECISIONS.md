@@ -127,3 +127,8 @@ preserves temporal coherence and mask↔RGB alignment. Horizontal flip is label-
   comparison shows interesting interference.
 - **B7 — Higher input resolution** (see D5 knob) if confusion matrix suggests distance-related
   errors (e.g. Neutral vs Striking at range).
+- **B8 — Combined checkpoint monitor** (observed in r2plus1d fold 0, 2026-07-11): pressure acc
+  was still climbing (0.30→0.46 by ep.10) when phase F1 peaked (ep.4-5); checkpointing on phase
+  F1 alone froze pressure at its weak early state. Candidate fix: monitor
+  `phase_F1 + 0.5·pressure_F1` in `train_utils.train_model`. Decide after both models' 4-fold
+  runs finish (changing mid-experiment would break comparability).
