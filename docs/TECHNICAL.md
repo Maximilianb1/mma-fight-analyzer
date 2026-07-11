@@ -142,24 +142,27 @@ area, avoids gloves and canvas). The region is converted to HSV; for each named 
 mask is computed from fixed HSV ranges (e.g. `red = H∈[0,12]∪[168,180], S≥60, V≥60`;
 `black = V≤70, S≤100`); the color with the highest matching-pixel ratio wins.
 
-### 3.3 Per-frame assignment (`_assign_frame_by_color`)
+### 3.3 Clip-level pairing decision (`assign_identities`)
 
-With two detections whose colors are `a, b` and fight colors `f1c, f2c`:
+Detections are first linked into **tracks** across the 16 frames (greedy IoU linking, same
+algorithm as the inference tracker); the two largest tracks are the fighter candidates
+(a second track below 20% of the main track's area is discarded as crowd/referee junk).
+Color evidence — the **non-skin** fraction of each shorts region matching each anchor color —
+is averaged over each *whole track*, and the pairing is decided **once per clip**: assign the
+combination (straight vs swapped) with the higher total evidence, requiring a minimum margin.
+Single badly-lit frames get outvoted instead of getting a vote. Skin exclusion matters because
+fighters are shirtless and skin hues overlap the red/orange/gold cloth ranges.
 
-- exact match (`a=f1c, b=f2c` or reversed) → assign both;
-- one side matches and the other doesn't contradict → assign both (the unmatched box is
-  "the other fighter" — `_complete_pair`);
-- both ambiguous → frame left unassigned (None, None).
+If the margin is too small, or only one usable track exists and its own evidence is ambiguous
+(a merged fighter-pair box carries BOTH colors), the clip **abstains** — zero masks.
+"Identity unknown" is harmless at training time; inverted identity is poison.
 
-With one detection: assign it only if its color matches one fighter exactly.
+### 3.4 Temporal propagation
 
-### 3.4 Temporal propagation (`assign_identities`)
-
-Two sweeps over the 16 frames — forward, then backward. At an unassigned frame *t* with a
-previously assigned neighbor: match each of the neighbor's boxes to the current frame's
-detections by highest IoU; accept when IoU > 0.2 (fighters move little in 0.33 s). After
-matching one identity, the remaining detection becomes the other fighter. Frames that remain
-unassigned contribute zero mask (the model sees "identity unknown here").
+After the clip-level decision, frames not covered by the two main tracks are filled by
+forward/backward sweeps: a neighbor frame's box is matched to the current frame's detections
+by IoU (> 0.2 accepted — fighters move little in 0.33 s), and after matching one identity the
+remaining detection becomes the other fighter. Still-unassigned frames contribute zero mask.
 
 ### 3.5 Guarantees and failure modes
 

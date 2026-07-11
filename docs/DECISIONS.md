@@ -25,10 +25,33 @@ fight-level folds and noting it as a limitation."
 ### D3 — Identity as a 4th input channel (+1 = F1, −1 = F2, 0 = background)
 Pressure labels refer to *broadcast metadata* (name left of the timer), invisible in pixels;
 without identity the label is not a function of the input and the task is unlearnable.
-Masks come from YOLOv8 boxes + per-fight shorts-color anchoring + temporal IoU propagation
-(ambiguous frames borrow identity from the nearest confident frame, boxes matched by IoU > 0.2,
-forward then backward pass).
+Masks come from YOLOv8 boxes + per-fight shorts-color anchoring + temporal IoU propagation.
 **Report:** explain the unlearnability argument — it justifies the whole identity module.
+
+**Revised 2026-07-11 after the first training round** (first-round pressure results exposed
+mask inversions, diagnosed via a straight-vs-swapped prediction test + visual frame audits):
+- **Clip-level decision** replaces per-frame color naming: detections are linked into tracks
+  (greedy IoU) and the straight-vs-swapped pairing is decided ONCE per clip from evidence
+  aggregated over whole tracks — single badly-lit frames get outvoted.
+- **Comparative scoring**: choose the pairing that best explains BOTH tracks' colors, instead of
+  naming each box's color absolutely (white shorts with black trim used to out-'black' dark
+  maroon shorts and invert Jones–Cormier systematically).
+- **Skin exclusion**: shorts regions on shirtless fighters are heavily skin-contaminated and
+  skin hues overlap red/orange/gold cloth; ratios are computed over non-skin pixels only.
+  Also: red requires S≥140 (skin pollution), white allows V≥150 (arena shadows).
+- **Abstention over guessing**: small evidence margins, junk second tracks (area < 20% of the
+  main track), and merged fighter-pair boxes yield ZERO masks — "identity unknown" is harmless
+  to training, inverted identity is poison.
+- **Jones–Cormier 2 is intentionally maskless** (blank colors in fights_meta.csv): both
+  fighters dark-skinned, maroon vs shadowed-white shorts, heavy clinch — color anchoring
+  stayed unreliable after all fixes (verified visually), so its 152 clips train with
+  identity-unknown masks rather than corrupted ones.
+- **Known limitation (report!):** in grapple-heavy clips the two fighters merge into one YOLO
+  box; identity is then unresolvable by this module and masks are zero or partially wrong
+  (occasionally a referee/crowd box slips in as the second track). Rejected fixes: referee
+  filtering by torso-skin (fails across skin tones), canvas-below-feet test (fails at the
+  fence). A learned detector/tracker (e.g. fine-tuned fighter detector) is the real fix —
+  future work.
 
 ### D4 — Inflated first conv = pure fine-tuning setup
 Both backbones are pretrained (Kinetics-400 / ImageNet). The first conv is rebuilt with 4 input
@@ -127,8 +150,8 @@ preserves temporal coherence and mask↔RGB alignment. Horizontal flip is label-
   comparison shows interesting interference.
 - **B7 — Higher input resolution** (see D5 knob) if confusion matrix suggests distance-related
   errors (e.g. Neutral vs Striking at range).
-- **B8 — Combined checkpoint monitor** (observed in r2plus1d fold 0, 2026-07-11): pressure acc
-  was still climbing (0.30→0.46 by ep.10) when phase F1 peaked (ep.4-5); checkpointing on phase
-  F1 alone froze pressure at its weak early state. Candidate fix: monitor
-  `phase_F1 + 0.5·pressure_F1` in `train_utils.train_model`. Decide after both models' 4-fold
-  runs finish (changing mid-experiment would break comparability).
+- **B8 — Combined checkpoint monitor** — IMPLEMENTED 2026-07-11: `train_utils.train_model` now
+  monitors `phase_F1 + 0.5·pressure_F1` (was: phase F1 only, which froze pressure at its weak
+  early state — observed in r2plus1d fold 0 where pressure was still climbing 0.30→0.46 when
+  phase peaked). Bundled into the identity-fix retrain so both architectures rerun under
+  identical rules; first-round numbers are not comparable to second-round numbers.

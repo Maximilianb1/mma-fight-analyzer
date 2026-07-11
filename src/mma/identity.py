@@ -12,10 +12,13 @@ import numpy as np
 
 # HSV ranges for shorts colors (H in [0,180], S/V in [0,255])
 COLOR_RANGES = {
-    "red":    [((0, 60, 60), (12, 255, 255)), ((168, 60, 60), (180, 255, 255))],
+    # red needs S>=140: dark-skin pixels sit at H<12 with S up to ~130 and were
+    # polluting the red evidence on shirtless fighters
+    "red":    [((0, 140, 60), (12, 255, 255)), ((168, 140, 60), (180, 255, 255))],
     "blue":   [((100, 60, 50), (135, 255, 255))],
     "black":  [((0, 0, 0), (180, 100, 70))],
-    "white":  [((0, 0, 180), (180, 50, 255))],
+    # white allows V>=150: arena shadows push white shorts well below V=180
+    "white":  [((0, 0, 150), (180, 60, 255))],
     "green":  [((35, 60, 50), (85, 255, 255))],
     "gold":   [((15, 60, 50), (35, 255, 255))],
     "gray":   [((0, 0, 50), (180, 50, 180))],
@@ -75,6 +78,32 @@ def classify_shorts_color(hsv_crop):
     return best, best_ratio
 
 
+# HSV skin band: fighters are shirtless, so shorts regions are heavily
+# skin-contaminated, and skin hues overlap the red/orange/gold cloth ranges.
+SKIN_LO, SKIN_HI = (3, 40, 70), (25, 180, 255)
+
+
+def _skin_mask(region_hsv):
+    return cv2.inRange(region_hsv, np.array(SKIN_LO), np.array(SKIN_HI))
+
+
+def color_ratio(hsv, box, color):
+    """Fraction of NON-SKIN shorts-region pixels matching a named color."""
+    region = get_shorts_region(hsv, box)
+    if region.size == 0:
+        return 0.0
+    total = region.shape[0] * region.shape[1]
+    keep = cv2.bitwise_not(_skin_mask(region))
+    n_keep = int(keep.sum()) // 255
+    if n_keep < 0.15 * total:  # region is nearly all skin -> no cloth evidence
+        return 0.0
+    mask = np.zeros(region.shape[:2], np.uint8)
+    for lo, hi in COLOR_RANGES[color]:
+        mask |= cv2.inRange(region, np.array(lo), np.array(hi))
+    mask &= keep
+    return float(mask.sum()) / 255.0 / n_keep
+
+
 def _complete_pair(boxes, f1b, f2b):
     """If exactly one identity is known and another detection exists, it is the other fighter."""
     if f1b is not None and f2b is None:
@@ -88,35 +117,90 @@ def _complete_pair(boxes, f1b, f2b):
     return f1b, f2b
 
 
-def _assign_frame_by_color(hsv, boxes, f1c, f2c):
-    colors = [classify_shorts_color(get_shorts_region(hsv, b))[0] for b in boxes]
-    if len(boxes) == 2:
-        a, b = colors
-        if (a == f1c and b == f2c) or (a == f1c and b != f1c) or (b == f2c and a != f2c):
-            return boxes[0], boxes[1]
-        if (a == f2c and b == f1c) or (a == f2c and b != f2c) or (b == f1c and a != f1c):
-            return boxes[1], boxes[0]
-        return None, None
-    if len(boxes) == 1:
-        if colors[0] == f1c:
-            return boxes[0], None
-        if colors[0] == f2c:
-            return None, boxes[0]
-    return None, None
+TRACK_LINK_IOU = 0.25
+CLIP_DECISION_MARGIN = 0.03    # min clip-aggregated evidence gap between pairings
+SINGLE_TRACK_MARGIN = 0.08     # stricter: no differential cancellation with one track
+JUNK_TRACK_AREA_FRACTION = 0.2  # 2nd track smaller than this vs 1st = crowd/referee
+
+
+def _link_tracks(dets):
+    """Greedy IoU linking of per-frame detections into tracks: {frame_idx: box}."""
+    tracks, last = [], {}
+    for t, boxes in enumerate(dets):
+        used = set()
+        for box in boxes:
+            best, best_iou = None, TRACK_LINK_IOU
+            for tid, pb in last.items():
+                if tid in used:
+                    continue
+                v = iou(box, pb)
+                if v > best_iou:
+                    best, best_iou = tid, v
+            if best is None:
+                best = len(tracks)
+                tracks.append({})
+            tracks[best][t] = box
+            last[best] = box
+            used.add(best)
+    return tracks
 
 
 def assign_identities(frames_bgr, dets, f1_color, f2_color):
-    """Per-frame (f1_box, f2_box) assignment.
+    """Per-frame (f1_box, f2_box) assignment with a CLIP-LEVEL identity decision.
 
-    Pass 1 assigns by shorts color where the colors are decisive; passes 2-3
-    propagate identity to ambiguous frames from temporal neighbours via IoU.
+    Detections are linked into tracks across the clip; color evidence is
+    aggregated over each whole track and the straight-vs-swapped pairing is
+    decided once — single badly-lit frames get outvoted instead of getting a
+    vote. Frames not covered by the two main tracks are then filled by the
+    IoU propagation passes.
     """
     n = len(frames_bgr)
-    assigns = []
-    for frame, boxes in zip(frames_bgr, dets):
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        f1b, f2b = _assign_frame_by_color(hsv, boxes, f1_color, f2_color)
-        assigns.append(_complete_pair(boxes, f1b, f2b))
+    dets = [boxes[:2] for boxes in dets]
+    hsvs = {}
+
+    def _hsv(t):
+        if t not in hsvs:
+            hsvs[t] = cv2.cvtColor(frames_bgr[t], cv2.COLOR_BGR2HSV)
+        return hsvs[t]
+
+    tracks = sorted(_link_tracks(dets),
+                    key=lambda tr: sum((b[2] - b[0]) * (b[3] - b[1]) for b in tr.values()),
+                    reverse=True)
+    track_a = tracks[0] if tracks else {}
+    track_b = tracks[1] if len(tracks) > 1 else {}
+
+    def mean_area(track):
+        return (sum((b[2] - b[0]) * (b[3] - b[1]) for b in track.values()) / len(track)
+                if track else 0.0)
+
+    if track_b and mean_area(track_b) < JUNK_TRACK_AREA_FRACTION * mean_area(track_a):
+        track_b = {}  # crowd/referee fragment, never a pairing partner
+
+    def mean_ratio(track, color):
+        total = sum(color_ratio(_hsv(t), box, color) for t, box in track.items())
+        return total / len(track) if track else 0.0
+
+    f1_track, f2_track = {}, {}
+    if track_b:
+        straight = mean_ratio(track_a, f1_color) + mean_ratio(track_b, f2_color)
+        swapped = mean_ratio(track_a, f2_color) + mean_ratio(track_b, f1_color)
+        if abs(straight - swapped) > CLIP_DECISION_MARGIN:
+            f1_track, f2_track = (track_a, track_b) if straight > swapped else (track_b, track_a)
+    elif track_a:
+        # single usable track: identify it alone; merged fighter-pair boxes carry
+        # BOTH colors and abstain here on purpose
+        ra, rb = mean_ratio(track_a, f1_color), mean_ratio(track_a, f2_color)
+        if ra - rb > SINGLE_TRACK_MARGIN:
+            f1_track = track_a
+        elif rb - ra > SINGLE_TRACK_MARGIN:
+            f2_track = track_a
+
+    if f1_track or f2_track:
+        complete = bool(f1_track) and bool(f2_track)
+        assigns = [_complete_pair(dets[t], f1_track.get(t), f2_track.get(t)) if complete
+                   else (f1_track.get(t), f2_track.get(t)) for t in range(n)]
+    else:
+        assigns = [(None, None)] * n  # no reliable evidence -> zero masks
 
     for order in (range(n), range(n - 1, -1, -1)):
         prev = None

@@ -127,8 +127,13 @@ def train_model(model, train_loader, val_loader, device, ckpt_path, ckpt_meta,
             continue
 
         val = evaluate(model, val_loader, device, crit_ph, crit_pr, pressure_weight)
-        # monitor phase macro-F1 when the phase head exists, else pressure macro-F1
-        monitor = val["phase_f1"] if val["phase_f1"] is not None else val["pressure_f1"]
+        # combined monitor (phase F1 + 0.5*pressure F1 over available heads):
+        # checkpointing on phase alone froze pressure at its weak early state (B8)
+        monitor = 0.0
+        if val["phase_f1"] is not None:
+            monitor += val["phase_f1"]
+        if val["pressure_f1"] is not None:
+            monitor += 0.5 * val["pressure_f1"]
         sched.step(monitor)
         history["val_loss"].append(val["loss"])
         history["val_phase_f1"].append(val["phase_f1"])

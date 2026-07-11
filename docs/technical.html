@@ -265,15 +265,19 @@ not a function of the input, and no model can beat the base rate. The mask chann
 “Fighter 1 pressuring” the learnable pattern “the +1 region is advancing”.</p>
 <h3>Decision rules</h3>
 <ul>
-<li><strong>Shorts region</strong> of a box: rows 35–60% of height, cols 15–85% of width
-    (trunk/shorts, avoids gloves/canvas). Converted to HSV; each named color has fixed ranges
-    (e.g. red = H∈[0,12]∪[168,180]; black = V≤70,S≤100); highest pixel-ratio color wins.</li>
-<li><strong>Per-frame assignment:</strong> exact two-sided match → both assigned; one-sided
-    match with no contradiction → the other detection becomes the other fighter; both
-    ambiguous → frame unassigned.</li>
-<li><strong>Temporal propagation:</strong> forward then backward sweep; an unassigned frame
-    borrows identity from its nearest assigned neighbor by matching boxes with IoU &gt; 0.2
-    (fighters barely move in 0.33 s). Still-unassigned frames yield zero mask.</li>
+<li><strong>Shorts region</strong> of a box: rows 35–60% of height, cols 15–85% of width.
+    Color evidence = fraction of <em>non-skin</em> pixels matching the anchor color's HSV range
+    (fighters are shirtless; skin hues overlap red/orange/gold cloth, so skin is masked out).</li>
+<li><strong>Clip-level pairing decision:</strong> detections are linked into tracks (greedy IoU),
+    color evidence is averaged over each whole track, and the straight-vs-swapped pairing is
+    decided <em>once per clip</em> with a minimum margin — single badly-lit frames get outvoted.
+    Tiny second tracks (&lt;20% of the main track's area) are discarded as crowd/referee junk.</li>
+<li><strong>Abstention over guessing:</strong> small margins and merged fighter-pair boxes
+    (which carry both colors) yield zero masks — "identity unknown" is harmless at training
+    time, inverted identity is poison. One fight (Jones–Cormier 2) is intentionally maskless:
+    color anchoring stayed unreliable there after all fixes.</li>
+<li><strong>Temporal propagation:</strong> frames not covered by the two main tracks are filled
+    by forward/backward IoU matching (&gt; 0.2) from assigned neighbors.</li>
 </ul>
 <div class="note warn">The mask is <strong>best-effort, not ground truth</strong> — referees can
 steal a top-2 slot, similar shorts confuse colors, clinches merge boxes. The classifier trains
