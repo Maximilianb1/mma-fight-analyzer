@@ -127,6 +127,9 @@ Full technical documentation — every tensor shape, decision rule, and pipeline
 training and inference — is in [docs/TECHNICAL.md](docs/TECHNICAL.md) (or the rendered
 [docs/technical.html](docs/technical.html) with pipeline diagrams). Design decisions, rationale,
 and the experiment backlog are documented in [docs/DECISIONS.md](docs/DECISIONS.md).
+The diagnosis and repair of the pressure task's corrupted identity supervision (including
+negative results) is written up as a case study in
+[docs/PRESSURE_INVESTIGATION.md](docs/PRESSURE_INVESTIGATION.md).
 
 ## Results
 
