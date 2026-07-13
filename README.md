@@ -55,12 +55,13 @@ annotated video with boxes and labels.
 │   ├── config.py            # labels, sizes, normalization stats
 │   ├── data.py              # dataset discovery + PyTorch datasets + clip-consistent augmentation
 │   ├── identity.py          # YOLO detection, shorts-color identity, temporal smoothing, masks
-│   ├── models.py            # GateNet, R(2+1)D-18 dual-head, ResNet-18+LSTM dual-head
+│   ├── models.py            # GateNet, R(2+1)D/R3D/MC3/LSTM heads + hierarchical pressure
 │   ├── train_utils.py       # training loop (AMP, early stopping), grouped folds, metrics
 │   ├── overlay.py           # drawing boxes/banners on output video
 │   └── pipeline.py          # end-to-end inference
 ├── notebooks/
 │   ├── colab_train.ipynb    # thin Colab wrapper that runs the scripts above
+│   ├── kaggle_full_experiments.ipynb # complete T4x2 experiments + selection + demo
 │   └── archive/             # earlier notebook-based experiments
 └── tools/
     └── labeler.py           # Streamlit tool used to build the dataset
@@ -68,7 +69,7 @@ annotated video with boxes and labels.
 
 ## Dataset
 
-We built the dataset ourselves: 12 full UFC fights cut into 5-second clips and labeled with
+We built the dataset ourselves: 11 full UFC fights cut into 5-second clips and labeled with
 a custom Streamlit tool ([tools/labeler.py](tools/labeler.py)) — ~1300 clips total, of which
 ~1160 are live-fight clips with phase + pressure labels and ~150 are marked *excluded*
 (replays/walkouts/breaks; these train the gate). **Fighter 1** is always the fighter whose name
@@ -108,6 +109,13 @@ python scripts/infer.py --video path/to/fight.mp4 --f1-name "Fighter A" --f2-nam
 On Colab open `notebooks/colab_train.ipynb`, which runs the same scripts on a GPU runtime.
 Every fold checkpoints separately, so a disconnected session resumes with
 `--folds i` for the missing folds.
+
+For the complete submission experiment suite, open
+`notebooks/kaggle_full_experiments.ipynb` on Kaggle with a T4 x2 accelerator. It runs the gate,
+multi-task/single-task comparison, identity-mask ablation, hierarchical-pressure experiment,
+R3D/MC3 baselines, temporal smoothing, a small tuning pilot, final full-data training, and an
+end-to-end demo. Independent experiments are pinned to the two GPUs in parallel, and all
+metrics, probabilities, plots, checkpoints, and logs are archived from `outputs/`.
 
 ### Method notes
 

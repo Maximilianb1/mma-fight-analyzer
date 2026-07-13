@@ -77,7 +77,7 @@ def top_two_tracks(tracks):
 
 
 class FightAnalyzer:
-    def __init__(self, gate_ckpt, phase_ckpt, device=None, interactive=True,
+    def __init__(self, gate_ckpt, phase_ckpt, pressure_ckpt=None, device=None, interactive=True,
                  f1_color=None, f2_color=None,
                  f1_name="Fighter 1", f2_name="Fighter 2",
                  out_dir="outputs", yolo_weights="yolov8n.pt"):
@@ -85,8 +85,11 @@ class FightAnalyzer:
         self.gate, gate_meta = load_gate_model(gate_ckpt, self.device)
         self.gate_threshold = gate_meta.get("threshold", 0.5)
         self.phase_model, self.phase_meta = load_phase_model(phase_ckpt, self.device)
-        self.mean, self.std = MODEL_INPUT_STATS[self.phase_meta["model_name"]]
-        self.use_mask = self.phase_meta["in_channels"] == 4
+        self.pressure_model = self.pressure_meta = None
+        if pressure_ckpt is not None:
+            self.pressure_model, self.pressure_meta = load_phase_model(pressure_ckpt, self.device)
+            if not self.pressure_meta.get("with_pressure", True):
+                raise ValueError("--pressure-ckpt does not contain a pressure head")
         self.yolo = ident.load_yolo(yolo_weights)
         self.interactive = interactive
         self.f1_color, self.f2_color = f1_color, f2_color
@@ -181,18 +184,24 @@ class FightAnalyzer:
 
     @torch.no_grad()
     def _classify(self, sampled_frames, mask):
-        frames = torch.stack([
-            torch.from_numpy(cv2.cvtColor(f, cv2.COLOR_BGR2RGB)).float().div_(255).permute(2, 0, 1)
-            for f in sampled_frames])
-        frames = TF.resize(frames, [C.CROP_SIZE, C.CROP_SIZE], antialias=True)
-        frames = TF.normalize(frames, self.mean, self.std)
-        video = frames.permute(1, 0, 2, 3)
-        if self.use_mask:
-            m = torch.from_numpy(mask).float().unsqueeze(1)
-            m = TF.resize(m, [C.CROP_SIZE, C.CROP_SIZE],
-                          interpolation=TF.InterpolationMode.NEAREST)
-            video = torch.cat([video, m.permute(1, 0, 2, 3)], dim=0)
-        logits_ph, logits_pr = self.phase_model(video.unsqueeze(0).to(self.device))
+        def prepare(meta):
+            mean, std = MODEL_INPUT_STATS[meta["model_name"]]
+            frames = torch.stack([
+                torch.from_numpy(cv2.cvtColor(f, cv2.COLOR_BGR2RGB)).float().div_(255).permute(2, 0, 1)
+                for f in sampled_frames])
+            frames = TF.resize(frames, [C.CROP_SIZE, C.CROP_SIZE], antialias=True)
+            frames = TF.normalize(frames, mean, std)
+            video = frames.permute(1, 0, 2, 3)
+            if meta["in_channels"] == 4:
+                m = torch.from_numpy(mask).float().unsqueeze(1)
+                m = TF.resize(m, [C.CROP_SIZE, C.CROP_SIZE],
+                              interpolation=TF.InterpolationMode.NEAREST)
+                video = torch.cat([video, m.permute(1, 0, 2, 3)], dim=0)
+            return video.unsqueeze(0).to(self.device)
+
+        logits_ph, logits_pr = self.phase_model(prepare(self.phase_meta))
+        if self.pressure_model is not None:
+            _, logits_pr = self.pressure_model(prepare(self.pressure_meta))
         phase = pressure = phase_conf = pressure_conf = None
         if logits_ph is not None:
             probs = torch.softmax(logits_ph, dim=1)[0]

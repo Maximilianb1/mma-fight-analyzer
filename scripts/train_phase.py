@@ -30,13 +30,43 @@ from mma.models import MODEL_INPUT_STATS, build_phase_model       # noqa: E402
 from mma.train_utils import (class_weights, evaluate, make_folds,  # noqa: E402
                              make_lofo_folds, set_seed, train_model)
 
-DEFAULT_BATCH = {"r2plus1d": 8, "lstm": 12}
+DEFAULT_BATCH = {"r2plus1d": 8, "r3d": 8, "mc3": 12, "lstm": 12}
 
 
 def make_loader(records, cache_dir, train, mean, std, use_mask, batch_size, workers):
     ds = PhaseClipDataset(records, cache_dir, train, mean, std, use_mask)
     return DataLoader(ds, batch_size=batch_size, shuffle=train,
                       num_workers=workers, pin_memory=True, drop_last=False)
+
+
+def plot_history(out_dir, tag, fold, history):
+    """Save a compact report-ready training curve for each fold."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    n = len(history["train_loss"])
+    epochs = np.arange(1, n + 1)
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
+    axes[0].plot(epochs, history["train_loss"], label="train")
+    if history["val_loss"]:
+        axes[0].plot(epochs[:len(history["val_loss"])], history["val_loss"], label="validation")
+    axes[0].set(title="Loss", xlabel="Epoch", ylabel="Weighted loss")
+    axes[0].legend()
+    if history["val_phase_f1"] and any(x is not None for x in history["val_phase_f1"]):
+        axes[1].plot(epochs[:len(history["val_phase_f1"])],
+                     [np.nan if x is None else x for x in history["val_phase_f1"]],
+                     label="phase macro-F1")
+    if history["val_pressure_f1"] and any(x is not None for x in history["val_pressure_f1"]):
+        axes[1].plot(epochs[:len(history["val_pressure_f1"])],
+                     [np.nan if x is None else x for x in history["val_pressure_f1"]],
+                     label="pressure macro-F1")
+    axes[1].set(title="Validation metrics", xlabel="Epoch", ylabel="Macro-F1", ylim=(0, 1))
+    axes[1].legend()
+    fig.suptitle(f"{tag} / fold {fold}")
+    fig.tight_layout()
+    fig.savefig(Path(out_dir) / f"{tag}_fold{fold}_training.png", dpi=180)
+    plt.close(fig)
 
 
 def aggregate(out_dir, model_name, k):
@@ -107,7 +137,7 @@ def aggregate(out_dir, model_name, k):
 def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--model", choices=["r2plus1d", "lstm"], required=True)
+    p.add_argument("--model", choices=["r2plus1d", "r3d", "mc3", "lstm"], required=True)
     p.add_argument("--raw-dir", default="data/raw")
     p.add_argument("--cache-dir", default="data/cache")
     p.add_argument("--out", default="outputs/phase")
@@ -119,6 +149,9 @@ def main():
     p.add_argument("--epochs", type=int, default=25)
     p.add_argument("--batch-size", type=int, default=None)
     p.add_argument("--lr", type=float, default=3e-4)
+    p.add_argument("--backbone-lr-factor", type=float, default=0.1)
+    p.add_argument("--weight-decay", type=float, default=1e-4)
+    p.add_argument("--label-smoothing", type=float, default=0.05)
     p.add_argument("--patience", type=int, default=6)
     p.add_argument("--pressure-weight", type=float, default=0.5)
     p.add_argument("--workers", type=int, default=2)
@@ -126,6 +159,10 @@ def main():
                    help="'both' = multi-task (default); 'phase'/'pressure' = single-task "
                         "variants for the one-model-vs-two comparison")
     p.add_argument("--no-mask", action="store_true", help="RGB-only ablation (3 channels)")
+    p.add_argument("--pressure-head", choices=["flat", "hierarchical"], default="flat",
+                   help="flat 3-way head or Mutual-vs-Directional + F1-vs-F2 factorization")
+    p.add_argument("--run-name", default=None,
+                   help="explicit artifact tag; useful for sweeps and prevents overwrites")
     p.add_argument("--final", action="store_true",
                    help="train one model on ALL fights (for the inference demo)")
     p.add_argument("--final-epochs", type=int, default=12)
@@ -143,11 +180,18 @@ def main():
     with_phase = args.task in ("both", "phase")
     with_pressure = args.task in ("both", "pressure")
     # tag keeps single-task/no-mask runs from overwriting the main results
-    tag = args.model + ("" if args.task == "both" else f"_{args.task}only") \
-        + ("_nomask" if args.no_mask else "")
+    default_tag = args.model + ("" if args.task == "both" else f"_{args.task}only") \
+        + ("_nomask" if args.no_mask else "") \
+        + ("_hierarchical" if args.pressure_head == "hierarchical" else "")
+    tag = args.run_name or default_tag
     meta = {"model_name": args.model, "in_channels": in_channels,
             "with_phase": with_phase, "with_pressure": with_pressure,
-            "phase_labels": C.PHASE_LABELS, "pressure_labels": C.PRESSURE_LABELS}
+            "pressure_head": args.pressure_head,
+            "phase_labels": C.PHASE_LABELS, "pressure_labels": C.PRESSURE_LABELS,
+            "training": {"lr": args.lr, "backbone_lr_factor": args.backbone_lr_factor,
+                         "weight_decay": args.weight_decay,
+                         "label_smoothing": args.label_smoothing,
+                         "pressure_weight": args.pressure_weight}}
 
     records = discover_clips(args.raw_dir)
     print(f"{len(records)} labeled clips / {records.fight.nunique()} fights on {device}")
@@ -157,13 +201,17 @@ def main():
                              not args.no_mask, batch, args.workers)
         y_ph = records["phase_label"].map(C.PHASE2IDX).values
         y_pr = records["pressure_label"].map(C.PRESSURE2IDX).values
-        model = build_phase_model(args.model, in_channels, with_phase, with_pressure)
+        model = build_phase_model(args.model, in_channels, with_phase, with_pressure,
+                                  pressure_head=args.pressure_head)
         ckpt = out_dir / f"{tag}_final.pt"
         train_model(model, loader, None, device, ckpt, meta,
                     epochs=args.final_epochs, lr=args.lr,
+                    backbone_lr_factor=args.backbone_lr_factor,
+                    weight_decay=args.weight_decay,
                     pressure_weight=args.pressure_weight,
                     phase_weights=class_weights(y_ph, C.NUM_PHASE_CLASSES),
                     pressure_weights=class_weights(y_pr, C.NUM_PRESSURE_CLASSES),
+                    label_smoothing=args.label_smoothing,
                     log_prefix=f"[{tag} final] ")
         print(f"Final model saved to {ckpt}")
         return
@@ -179,15 +227,19 @@ def main():
               f"(val fights: {sorted(va.fight.unique())})")
         y_ph = tr["phase_label"].map(C.PHASE2IDX).values
         y_pr = tr["pressure_label"].map(C.PRESSURE2IDX).values
-        model = build_phase_model(args.model, in_channels, with_phase, with_pressure)
+        model = build_phase_model(args.model, in_channels, with_phase, with_pressure,
+                                  pressure_head=args.pressure_head)
         ckpt = out_dir / f"{tag}_fold{fi}.pt"
         history = train_model(
             model, make_loader(tr, args.cache_dir, True, mean, std, not args.no_mask, batch, args.workers),
             make_loader(va, args.cache_dir, False, mean, std, not args.no_mask, batch, args.workers),
-            device, ckpt, meta, epochs=args.epochs, lr=args.lr, patience=args.patience,
+            device, ckpt, meta, epochs=args.epochs, lr=args.lr,
+            backbone_lr_factor=args.backbone_lr_factor, weight_decay=args.weight_decay,
+            patience=args.patience,
             pressure_weight=args.pressure_weight,
             phase_weights=class_weights(y_ph, C.NUM_PHASE_CLASSES),
             pressure_weights=class_weights(y_pr, C.NUM_PRESSURE_CLASSES),
+            label_smoothing=args.label_smoothing,
             log_prefix=f"[{tag} f{fi}] ")
 
         state = torch.load(ckpt, map_location=device, weights_only=False)
@@ -198,11 +250,15 @@ def main():
                        args.pressure_weight)
         np.savez(out_dir / f"{tag}_fold{fi}_preds.npz",
                  phase_true=val["phase_true"], phase_pred=val["phase_pred"],
+                 phase_prob=val["phase_prob"],
                  pressure_true=val["pressure_true"], pressure_pred=val["pressure_pred"],
+                 pressure_prob=val["pressure_prob"],
                  fight=va.fight.values.astype(str),
+                 filename=va.filename.values.astype(str),
                  val_fights=np.array(sorted(va.fight.unique())))
         with open(out_dir / f"{tag}_fold{fi}_history.json", "w") as f:
             json.dump(history, f, indent=2)
+        plot_history(out_dir, tag, fi, history)
         print(f"fold {fi}: phase F1={val['phase_f1']} acc={val['phase_acc']} "
               f"| pressure acc={val['pressure_acc']}")
 
