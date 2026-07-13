@@ -100,7 +100,40 @@ footage — future work.
   is dominated by label subjectivity ("who is pushing" over an arbitrary 5-second window) —
   quantifiable via an inter-annotator agreement study (backlog B5).
 
-## 6. Report-ready sentences
+## 6. Round-2 outcome (2026-07-12, Kaggle T4)
+
+r2plus1d, 4-fold fight-level CV, out-of-fold:
+
+| metric | round 1 | round 2 | delta |
+|---|---|---|---|
+| phase acc / macro-F1 | 0.744 / 0.673 | 0.729 / 0.680 | ~unchanged (within fold noise) |
+| pressure acc | 0.381 | **0.446** | **+6.5 pts** |
+| pressure macro-F1 | 0.338 | **0.390** | **+5.2 pts** |
+| swap test (straight vs swapped) | 0.381 vs 0.439 (inverted!) | 0.446 vs 0.464 (~balanced) | inversion removed |
+
+LSTM: phase 0.607/0.523, pressure 0.397/0.370 — r2plus1d wins phase decisively (+12 F1);
+pressure comparable. Notable per-class phase gains for r2plus1d: Clinch F1 0.63->0.68,
+Transition 0.56->0.59 (longer training via the combined monitor helped minority classes).
+
+Interpreting the two residual swap-test flags:
+- **Jones-Cormier 2 (0.375 vs 0.513):** NOT data corruption — this fight is deliberately
+  maskless, so the model cannot know who is who there; its F1/F2 guesses reflect global
+  priors, which anti-correlate with this fight's F1-heavy labels. A maskless fight showing a
+  swap gap is the expected artifact, not a defect.
+- **Topuria-Oliveira (0.429 vs 0.643, n=28):** possibly genuinely still-inverted anchors
+  (Topuria's multi-pattern shorts contain red/orange elements that may out-orange Oliveira in
+  some clips; coverage 0.65). Only 28 clips — negligible impact; candidate fix is blanking its
+  colors like JJDC. Amanda (0.2 vs 0.9, n=10) is too small to interpret.
+
+**Conclusion for the report:** removing the supervision corruption + combined checkpointing
+recovered ~6.5 accuracy points on pressure and eliminated the systematic inversion signature.
+Pressure remains hard (acc 0.446 vs 0.489 all-Mutual baseline; F1/F2 classes ~0.25-0.31 F1):
+with corruption ruled out, the remaining gap is attributable to (a) intrinsic label
+subjectivity of 5-second "who is pushing" judgments and (b) identity-mask incompleteness in
+grappling exchanges. The `--no-mask` ablation quantifies the identity channel's net value;
+inter-annotator agreement (backlog B5) would quantify the label-noise ceiling.
+
+## 7. Report-ready sentences
 
 > During error analysis we found that per-fight pressure accuracy on two fights was
 > significantly *below* chance. A prediction-inversion test (re-scoring with Fighter 1/2

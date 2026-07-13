@@ -133,13 +133,17 @@ negative results) is written up as a case study in
 
 ## Results
 
-*(to be filled after the final runs — see `outputs/phase/model_comparison.png`,
-`confusion_*.png`, and `outputs/phase/*_metrics.json`)*
+Out-of-fold over 4 fight-level folds (no validation fight ever seen in training):
 
 | Model | Phase macro-F1 | Phase acc | Pressure macro-F1 | Pressure acc |
 |---|---|---|---|---|
-| R(2+1)D-18 | – | – | – | – |
-| ResNet-18 + LSTM | – | – | – | – |
+| R(2+1)D-18 | **0.680** | **0.729** | **0.390** | **0.446** |
+| ResNet-18 + LSTM | 0.523 | 0.607 | 0.370 | 0.397 |
+
+Per-class, per-fight breakdowns and confusion matrices: `outputs/phase/*_metrics.json`,
+`confusion_*.png`, `model_comparison.png`. The diagnosis and repair of an identity-supervision
+corruption that initially held pressure at chance is documented in
+[docs/PRESSURE_INVESTIGATION.md](docs/PRESSURE_INVESTIGATION.md).
 
 ## Ethics
 
