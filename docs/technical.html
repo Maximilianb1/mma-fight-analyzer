@@ -184,7 +184,7 @@ inference. Design rationale for every choice is logged in <code>docs/DECISIONS.m
 <text x="220" y="488" text-anchor="middle" class="svgb">Gate training</text>
 <text x="220" y="508" text-anchor="middle" class="svgs">4 frames/clip · label = excluded flag</text>
 <text x="220" y="524" text-anchor="middle" class="svgs">ResNet-18 → 1 logit · BCE (pos_weight ≈ 7.6)</text>
-<text x="220" y="540" text-anchor="middle" class="svgs">fight-grouped 75/25 split · max-F1 threshold</text>
+<text x="220" y="540" text-anchor="middle" class="svgs">5 dev folds · ≥98% fight-retention threshold</text>
 
 <rect x="480" y="464" width="360" height="88" class="svghl" rx="9"/>
 <text x="660" y="488" text-anchor="middle" class="svgb">Phase + pressure training</text>
@@ -201,7 +201,7 @@ inference. Design rationale for every choice is logged in <code>docs/DECISIONS.m
 
 <rect x="480" y="584" width="360" height="54" class="svgbox" rx="8"/>
 <text x="660" y="606" text-anchor="middle" class="svgt">checkpoints + out-of-fold metrics</text>
-<text x="660" y="624" text-anchor="middle" class="svgs">4-fold StratifiedGroupKFold by fight (or --lofo)</text>
+<text x="660" y="624" text-anchor="middle" class="svgs">5 paired dev folds + 1 untouched test fight</text>
 </svg>
 <figcaption>Fig. 1 — Training pipeline: from the Drive dataset to trained checkpoints.</figcaption>
 </figure>
@@ -330,19 +330,18 @@ inference rebuilds the exact model from the file alone.</p>
 <li><strong>Schedule &amp; stopping:</strong> ReduceLROnPlateau (×0.5, patience 2) and early
     stopping (patience 6, max 25 epochs) on validation <strong>phase macro-F1</strong>
     (pressure macro-F1 for <code>--task pressure</code>); best checkpoint reloaded before eval.</li>
-<li><strong>Folds:</strong> <code>StratifiedGroupKFold(4)</code> grouped by <em>fight</em> —
-    a validation fight never contributes training clips (no leakage); stratified on phase.
-    <code>--lofo</code> = leave-one-fight-out (11 folds). Every fold saves its checkpoint,
-    predictions and history → a dead Colab session resumes with <code>--folds i,j</code>.</li>
+<li><strong>Folds:</strong> Paddy–Chandler is an untouched final test fight. The other ten
+    fights form five deterministic pairs: every fold trains on eight fights and validates on
+    two. All tasks and candidates reuse the same pairs. Every fold saves its checkpoint,
+    predictions and history → a dead session resumes with <code>--folds i,j</code>.</li>
 <li><strong>Reported numbers:</strong> out-of-fold concatenated predictions → macro-F1,
     per-class report, confusion matrices, and a <strong>per-fight table</strong> for failure
-    analysis. Known impurity (stated in the report): early stopping tunes the epoch on the
-    reported fold; nested CV would fix it at 3× compute.</li>
-<li><strong>Deployment model:</strong> <code>--final</code> retrains on all 11 fights, fixed
-    12 epochs, no validation — used only by inference, never for reported metrics.</li>
-<li><strong>Gate:</strong> fight-grouped 75/25 split, BCE with pos_weight ≈ 7.6, 8 epochs;
-    best-val-AUC checkpoint; operating threshold = max-F1 point of the validation PR curve,
-    stored inside <code>gate.pt</code>.</li>
+    analysis. Model and epoch selection use development OOF only; the holdout remains unseen.</li>
+<li><strong>Deployment model:</strong> <code>--final</code> retrains on all 10 development
+    fights for the median best fold epoch, then evaluates once on Paddy–Chandler.</li>
+<li><strong>Gate:</strong> the same five development pairs, BCE with class weighting, and
+    best-val-AUC checkpoints. Its OOF threshold maximizes non-fight rejection subject to at
+    least 98% fight retention; the frozen final gate is tested once on the holdout.</li>
 </ul>
 
 <h2 id="inference">8 · Inference pipeline</h2>
@@ -436,22 +435,23 @@ pressure_conf}</code>.</p>
 <tr><th>path</th><th>producer</th><th>contents</th></tr>
 <tr><td><code>data/raw/&lt;fight&gt;/…</code></td><td>download_data.py</td><td>clips + labels CSVs</td></tr>
 <tr><td><code>data/cache/&lt;fight&gt;/&lt;clip&gt;.npz</code></td><td>preprocess.py</td><td>frames u8 (16,128,228,3), mask i8</td></tr>
-<tr><td><code>outputs/gate/gate.pt</code></td><td>train_gate.py</td><td>weights + threshold + val AUC/AP</td></tr>
+<tr><td><code>outputs/gate/gate.pt</code></td><td>train_gate.py --final</td><td>dev-trained weights + OOF threshold</td></tr>
 <tr><td><code>outputs/phase/&lt;tag&gt;_fold&lt;i&gt;.pt / _preds.npz / _history.json</code></td><td>train_phase.py</td><td>per-fold checkpoint, val predictions (+fight names), curves</td></tr>
 <tr><td><code>outputs/phase/&lt;tag&gt;_metrics.json</code>, <code>confusion_*.png</code></td><td>aggregation</td><td>OOF metrics, per-class report, per-fight table, matrices</td></tr>
 <tr><td><code>outputs/phase/model_comparison.png</code></td><td>evaluate.py</td><td>cross-model chart</td></tr>
-<tr><td><code>outputs/phase/&lt;tag&gt;_final.pt</code></td><td>train_phase.py --final</td><td>deployment model (all fights)</td></tr>
+<tr><td><code>outputs/phase/&lt;tag&gt;_final.pt</code></td><td>train_phase.py --final</td><td>deployment model (10 dev fights)</td></tr>
 <tr><td><code>&lt;video&gt;_labeled.mp4</code> + <code>.json</code></td><td>infer.py</td><td>annotated video + per-window log</td></tr>
 </table></div>
 
 <pre><code>python scripts/download_data.py                         # Drive → data/raw
 python scripts/preprocess.py                            # → data/cache (once)
-python scripts/train_gate.py                            # → outputs/gate/gate.pt
-python scripts/train_phase.py --model r2plus1d          # 4-fold CV (also: lstm)
+python scripts/train_gate.py --folds all                # 5-fold development OOF
+python scripts/train_gate.py --final                    # one-shot holdout test
+python scripts/train_phase.py --model r2plus1d          # 5-fold dev CV (also: lstm)
 python scripts/train_phase.py --model r2plus1d --task phase|pressure   # single-task
 python scripts/train_phase.py --model r2plus1d --no-mask               # ablation
-python scripts/train_phase.py --model r2plus1d --lofo                  # 11-fold LOFO
-python scripts/train_phase.py --model r2plus1d --final  # deployment model
+python scripts/train_phase.py --model r2plus1d --lofo                  # dev-only LOFO
+python scripts/train_phase.py --model r2plus1d --final  # dev model + holdout test
 python scripts/evaluate.py                              # comparison chart
 python scripts/infer.py --video f.mp4 --f1-name "…" --f2-name "…"</code></pre>
 

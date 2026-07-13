@@ -31,3 +31,10 @@ KINETICS_MEAN = [0.43216, 0.394666, 0.37645]
 KINETICS_STD = [0.22803, 0.22145, 0.216989]
 
 RANDOM_SEED = 42
+
+# Validation protocol used by the submission experiments.  This fight is never
+# used for model selection, early stopping, threshold selection, or tuning.  The
+# other ten fights form five development folds with exactly two validation
+# fights per fold.
+DEFAULT_HOLDOUT_FIGHT = "Paddy Pimblett vs Michael Chandler"
+DEV_FOLDS = 5

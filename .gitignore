@@ -10,3 +10,5 @@ outputs/
 *.npz
 *.mp4
 yolov8*.pt
+mma_cache*.zip
+mma_experiment_outputs*.zip

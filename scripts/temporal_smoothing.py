@@ -3,7 +3,9 @@
 Requires prediction artifacts produced by the current train_phase.py, which save
 softmax probabilities and filenames. No retraining is performed.
 
-  python scripts/temporal_smoothing.py --tag r2plus1d --task phase --window 3
+  python scripts/temporal_smoothing.py --tag r2plus1d --task phase --source oof --method all
+  python scripts/temporal_smoothing.py --tag deployment_phase --task phase \
+      --source holdout --method probability_mean
 """
 
 import argparse
@@ -62,7 +64,7 @@ def metrics(y, pred, labels):
     }
 
 
-def plot_comparison(path, task, labels, results):
+def plot_comparison(path, task, labels, results, source):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -77,7 +79,7 @@ def plot_comparison(path, task, labels, results):
         ax.set_xlabel("Predicted")
         ax.set_ylabel("True")
         ax.tick_params(axis="x", rotation=30)
-    fig.suptitle(f"{task.title()} temporal smoothing (OOF)")
+    fig.suptitle(f"{task.title()} temporal smoothing ({source})")
     fig.tight_layout()
     fig.savefig(path, dpi=180)
     plt.close(fig)
@@ -89,12 +91,19 @@ def main():
     p.add_argument("--tag", required=True)
     p.add_argument("--task", choices=["phase", "pressure", "both"], default="phase")
     p.add_argument("--window", type=int, default=3)
+    p.add_argument("--source", choices=["oof", "holdout"], default="oof",
+                   help="development OOF folds or the one-shot holdout prediction file")
+    p.add_argument("--method", choices=["all", "probability_mean", "majority_vote"],
+                   default="all",
+                   help="use 'all' only for development selection; fix one method on holdout")
     args = p.parse_args()
     if args.window < 1 or args.window % 2 == 0:
         raise SystemExit("--window must be a positive odd number")
 
     out_dir = Path(args.out)
-    files = sorted(out_dir.glob(f"{args.tag}_fold*_preds.npz"))
+    files = (sorted(out_dir.glob(f"{args.tag}_fold*_preds.npz")) if args.source == "oof"
+             else [out_dir / f"{args.tag}_holdout_preds.npz"])
+    files = [path for path in files if path.exists()]
     if not files:
         raise SystemExit(f"no prediction files for tag {args.tag!r} under {out_dir}")
     parts = [np.load(f) for f in files]
@@ -102,7 +111,8 @@ def main():
     filenames = np.concatenate([x["filename"] for x in parts]).astype(str)
 
     tasks = ["phase", "pressure"] if args.task == "both" else [args.task]
-    all_results = {"tag": args.tag, "window": args.window, "tasks": {}}
+    all_results = {"tag": args.tag, "window": args.window, "source": args.source,
+                   "method": args.method, "tasks": {}}
     for task in tasks:
         labels = C.PHASE_LABELS if task == "phase" else C.PRESSURE_LABELS
         y = np.concatenate([x[f"{task}_true"] for x in parts])
@@ -114,18 +124,21 @@ def main():
         raw = probs.argmax(axis=1)
         mean_pred = smooth_probabilities(probs, fights, filenames, args.window).argmax(axis=1)
         majority_pred = majority_smoothing(raw, fights, filenames, args.window, len(labels))
-        results = {
-            "raw": metrics(y, raw, labels),
-            "probability_mean": metrics(y, mean_pred, labels),
-            "majority_vote": metrics(y, majority_pred, labels),
+        candidates = {
+            "probability_mean": mean_pred,
+            "majority_vote": majority_pred,
         }
+        results = {"raw": metrics(y, raw, labels)}
+        selected = candidates if args.method == "all" else {args.method: candidates[args.method]}
+        results.update({name: metrics(y, pred, labels) for name, pred in selected.items()})
         all_results["tasks"][task] = results
         print(f"\n{task.upper()} / {args.tag}")
         for name, result in results.items():
             print(f"  {name:<18} acc={result['accuracy']:.3f} macro-F1={result['macro_f1']:.3f}")
-        plot_comparison(out_dir / f"smoothing_{task}_{args.tag}.png", task, labels, results)
+        plot_comparison(out_dir / f"smoothing_{args.source}_{task}_{args.tag}.png",
+                        task, labels, results, args.source)
 
-    path = out_dir / f"smoothing_{args.tag}.json"
+    path = out_dir / f"smoothing_{args.source}_{args.tag}_{args.task}.json"
     path.write_text(json.dumps(all_results, indent=2), encoding="utf-8")
     print(f"\nsaved {path}")
 

@@ -7,20 +7,21 @@ Working log for the report. Each entry: what we chose, why, and what to write in
 
 ## 1. Decided
 
-### D1 — Fight-level cross-validation (no clip-level splits)
-Folds are grouped by fight (`StratifiedGroupKFold`, default K=4); a validation fight never
-contributes clips to training. Clip-level splits would leak fighters/arena/lighting and inflate
-scores. `--lofo` runs leave-one-fight-out (11 folds) as a stricter variant.
+### D1 — Fight-level development CV (no clip-level splits)
+The ten development fights are partitioned into five deterministic validation pairs: each fold
+trains on eight fights and validates on two. A validation fight never contributes clips to its
+training fold. The gate, classifiers, architectures, ablations, and tuning candidates reuse the
+exact same pairs. Clip-level splits would leak fighters/arena/lighting and inflate scores.
 **Report:** state this explicitly — it is the main methodological claim of the evaluation.
 
-### D2 — No separate held-out test set; early stopping uses the val fold
-With 11 fights, a frozen test set of 2–3 fights would be tiny and high-variance. Out-of-fold
-CV predictions already come from models that never saw those fights. The one impurity: the
-early-stopping *epoch choice* is tuned on the same fold we report, giving a small optimistic
-bias; the clean fix (nested CV) costs ~3× compute we don't have.
-**Report sentence:** "Model selection (early stopping) uses the validation fold, so results may
-be slightly optimistic; we mitigate this by reporting aggregated results across 4 disjoint
-fight-level folds and noting it as a limitation."
+### D2 — One untouched final test fight (revised 2026-07-13)
+`Paddy Pimblett vs Michael Chandler` is excluded from all development folds and every decision:
+early stopping, threshold selection, smoothing selection, architectures, ablations, and tuning.
+It was chosen before model results because its 156 fight clips cover all five phase and all three
+pressure classes, while its 19 excluded clips also test the gate. Final models train on the ten
+development fights for the median best CV epoch and are evaluated exactly once on Paddy–Chandler.
+The single-fight test is still high-variance, so development OOF/per-fight results remain part of
+the report; the holdout prevents the final headline result from reusing selection data.
 
 ### D3 — Identity as a 4th input channel (+1 = F1, −1 = F2, 0 = background)
 Pressure labels refer to *broadcast metadata* (name left of the timer), invisible in pixels;
@@ -84,8 +85,10 @@ overconfidence on noisy 5 s labels.
 Non-fight evidence (replay graphics, walkout, commentary desk) is visible in any single frame —
 no temporal model needed. 4 frames per clip: more positives (153 clips → ~600 frames) while
 extra frames from the same clip are near-duplicates (highly correlated), so >4 adds compute,
-not information. Inference averages 4 sigmoid probabilities; threshold chosen by max-F1 on the
-val precision-recall curve (stored in the checkpoint).
+not information. Inference averages 4 sigmoid probabilities. Five-fold development OOF selects
+a cost-sensitive threshold that maximizes non-fight rejection while retaining at least 98% of
+real-fight clips; the fixed threshold is tested once on the untouched fight and stored in the
+checkpoint. The optimized loader decodes each NPZ once for all four frames.
 **Backlog knob:** if gate AUC is borderline, average more frames at inference (free) before
 touching the model.
 
@@ -121,7 +124,7 @@ preserves temporal coherence and mask↔RGB alignment. Horizontal flip is label-
 | Input resolution | 112 (cache 128) | `config` | 144/160 — needs preprocess re-run |
 | Crop scale range | (0.6, 1.0) | `data.augment_clip` | tighter = milder augmentation |
 | Gate frames/clip | 4 | `config.GATE_FRAMES` | 2–8 |
-| Gate threshold | max-F1 on val | `train_gate.py` | pick by desired precision/recall tradeoff |
+| Gate threshold | ≥98% fight retention on dev OOF | `train_gate.py` | vary constraint, never holdout |
 | LSTM hidden/layers | 256 / 2 | `models.ResNetLSTMDual` | 128–512 / 1–2 |
 | Track-link IoU | 0.3 | `pipeline.TRACK_LINK_IOU` | 0.2–0.5 |
 | Anchor EMA | 0.85 | `pipeline.ANCHOR_EMA` | 0.7–0.95 |
@@ -140,8 +143,8 @@ preserves temporal coherence and mask↔RGB alignment. Horizontal flip is label-
   (a) majority filter over 3 windows; (b) averaging softmax probabilities of neighboring
   windows before argmax; (c) transition prior / simple HMM over phase sequence.
   Evaluate on out-of-fold predictions (no retraining needed) before using in the demo.
-- **B3 — Leave-one-fight-out CV** (`--lofo`, implemented): cleaner story, 11 folds, ~3× compute.
-  Run if GPU time allows; report alongside the 4-fold numbers.
+- **B3 — Leave-one-development-fight-out CV** (`--lofo`, implemented): optional 10-fold
+  sensitivity analysis; the final Paddy–Chandler holdout remains untouched.
 - **B4 — Per-fight results table** (implemented, automatic in `aggregate`): use as the
   failure-analysis section; check whether hard fights correlate with low identity-mask coverage.
 - **B5 — Inter-annotator agreement**: both annotators relabel ~50 clips independently,

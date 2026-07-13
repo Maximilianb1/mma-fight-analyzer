@@ -153,4 +153,34 @@ class GateFrameDataset(Dataset):
         frame = torch.from_numpy(frames_np[slot]).float().div_(255).permute(2, 0, 1).unsqueeze(0)
         frame, _ = augment_clip(frame, None, self.train)
         frame = TF.normalize(frame, self.mean, self.std).squeeze(0)
-        return frame, float(row.excluded)
+        return frame, np.float32(row.excluded)
+
+
+class GateClipDataset(Dataset):
+    """Four sampled gate frames loaded with one NPZ decompression per clip.
+
+    Returning ``(S, 3, H, W)`` lets the training script flatten the sampled
+    frames for ResNet while averaging their probabilities at clip level.  The
+    older frame dataset decompressed the same NPZ four times and left the GPU
+    starved on Kaggle.
+    """
+
+    def __init__(self, records, cache_dir, train, mean=None, std=None,
+                 frames_per_clip=C.GATE_FRAMES):
+        self.records = records.reset_index(drop=True)
+        self.cache_dir = cache_dir
+        self.train = train
+        self.mean = mean or C.IMAGENET_MEAN
+        self.std = std or C.IMAGENET_STD
+        self.slots = np.linspace(0, C.NUM_FRAMES - 1, frames_per_clip).round().astype(int)
+
+    def __len__(self):
+        return len(self.records)
+
+    def __getitem__(self, idx):
+        row = self.records.iloc[idx]
+        frames_np, _ = load_cached_clip(cache_path(self.cache_dir, row.fight, row.filename))
+        frames = torch.from_numpy(frames_np[self.slots]).float().div_(255).permute(0, 3, 1, 2)
+        frames, _ = augment_clip(frames, None, self.train)
+        frames = TF.normalize(frames, self.mean, self.std)
+        return frames, np.float32(row.excluded)

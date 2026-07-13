@@ -87,10 +87,11 @@ pip install -r requirements.txt
 python scripts/download_data.py                 # set the Drive folder ID inside first
 python scripts/preprocess.py                    # one-time cache: frames + identity masks
 
-# 2. gate (fight / non-fight)
-python scripts/train_gate.py
+# 2. gate: 5 development folds, aggregate OOF, then frozen holdout test
+python scripts/train_gate.py --folds all
+python scripts/train_gate.py --final
 
-# 3. phase + pressure, 4-fold fight-level CV, both architectures
+# 3. phase + pressure, 5-fold fight-level development CV
 python scripts/train_phase.py --model r2plus1d
 python scripts/train_phase.py --model lstm
 python scripts/evaluate.py                      # comparison table + charts
@@ -101,7 +102,7 @@ python scripts/train_phase.py --model r2plus1d --task phase     # single-task: p
 python scripts/train_phase.py --model r2plus1d --task pressure  # single-task: pressure only
 python scripts/train_phase.py --model r2plus1d --lofo           # leave-one-fight-out CV
 
-# 5. train the deployment model on all fights + run the demo
+# 5. train on all 10 development fights, test the untouched fight, then demo
 python scripts/train_phase.py --model r2plus1d --final
 python scripts/infer.py --video path/to/fight.mp4 --f1-name "Fighter A" --f2-name "Fighter B"
 ```
@@ -119,9 +120,17 @@ metrics, probabilities, plots, checkpoints, and logs are archived from `outputs/
 
 ### Method notes
 
-- **Fight-level cross-validation.** Folds are grouped by fight (`StratifiedGroupKFold`), so
-  validation fights are never seen in training — clip-level splits would leak fighter/arena
-  appearance and inflate scores.
+- **Untouched final fight.** `Paddy Pimblett vs Michael Chandler` is excluded from model
+  selection, early stopping, threshold selection, architecture comparison, ablations, and
+  hyperparameter tuning. It contains all phase/pressure classes plus non-fight clips, so the
+  frozen final pipeline can be evaluated once on a meaningful test fight.
+- **Fight-level development cross-validation.** The other ten fights form five deterministic
+  folds with exactly two validation fights and eight training fights each. Gate, phase,
+  pressure, architectures, and ablations reuse the identical fight pairs; no fighter/arena
+  appearance crosses from a validation fight into its training fold.
+- **Selection versus testing.** OOF development predictions select models, epoch counts,
+  temporal smoothing, and the gate threshold. Final models train on the ten development fights
+  and are evaluated once on the untouched fight. The holdout is never folded back into tuning.
 - **Identity channel.** The pressure task ("who is pushing the action") is only well-defined if
   the model knows who Fighter 1 is. We attach a 4th input channel: +1 over Fighter 1's box,
   −1 over Fighter 2's, 0 elsewhere, produced by YOLOv8 + per-fight shorts-color anchoring +
@@ -141,7 +150,8 @@ negative results) is written up as a case study in
 
 ## Results
 
-Out-of-fold over 4 fight-level folds (no validation fight ever seen in training):
+Historical out-of-fold results from the earlier 4-fold protocol (kept for comparison until the
+new fixed-holdout experiment finishes):
 
 | Model | Phase macro-F1 | Phase acc | Pressure macro-F1 | Pressure acc |
 |---|---|---|---|---|

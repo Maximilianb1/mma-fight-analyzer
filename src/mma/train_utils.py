@@ -3,6 +3,7 @@
 import random
 import time
 from collections import Counter
+from functools import lru_cache
 
 import numpy as np
 import torch
@@ -28,6 +29,95 @@ def make_folds(records, n_splits=4, seed=C.RANDOM_SEED):
     groups = records["fight"].values
     skf = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=seed)
     return list(skf.split(records, y, groups))
+
+
+def paired_fight_folds(records, holdout_fight=C.DEFAULT_HOLDOUT_FIGHT,
+                       n_splits=C.DEV_FOLDS):
+    """Return a deterministic development/test protocol at fight level.
+
+    One fight is held out completely.  The remaining ``2 * n_splits`` fights
+    are partitioned into validation pairs by exhaustively considering all
+    perfect pairings (only 945 for ten fights).  The score balances clip count,
+    excluded clips, phase labels, and pressure labels.  A large penalty prevents
+    a fold from missing a class whenever the data contains that class in at
+    least ``n_splits`` different fights.
+
+    Using fight-name pairs rather than row indices lets the gate and phase
+    scripts share *exactly* the same folds even though the gate also includes
+    excluded clips.
+    """
+    fights = sorted(records["fight"].unique().tolist())
+    if holdout_fight not in fights:
+        raise ValueError(f"holdout fight {holdout_fight!r} is not in the dataset")
+    dev_fights = [f for f in fights if f != holdout_fight]
+    if len(dev_fights) != 2 * n_splits:
+        raise ValueError(
+            f"paired {n_splits}-fold CV needs exactly {2 * n_splits} development fights; "
+            f"found {len(dev_fights)} after holding out {holdout_fight!r}")
+
+    feature_rows = []
+    for fight in dev_fights:
+        group = records[records["fight"] == fight]
+        excluded = group["excluded"].astype(bool)
+        kept = group[~excluded]
+        feature_rows.append([
+            len(group), int(excluded.sum()),
+            *[int((kept["phase_label"] == label).sum()) for label in C.PHASE_LABELS],
+            *[int((kept["pressure_label"] == label).sum()) for label in C.PRESSURE_LABELS],
+        ])
+
+    features = np.asarray(feature_rows, dtype=np.float64)
+    target = features.sum(axis=0) / n_splits
+    # total, excluded, five phase classes, three pressure classes
+    weights = np.asarray([0.5, 1.0, 0.5, 1.0, 3.0, 2.0, 1.0,
+                          0.75, 0.75, 0.5])
+    class_can_cover_every_fold = (features > 0).sum(axis=0) >= n_splits
+
+    def pair_cost(i, j):
+        pair = features[i] + features[j]
+        normalized = (pair - target) / np.maximum(target, 5.0)
+        cost = float(np.sum(normalized ** 2 * weights))
+        # Indices 0/1 are total/excluded; the remainder are semantic labels.
+        missing = class_can_cover_every_fold[2:] & (pair[2:] == 0)
+        return cost + 100.0 * float(missing.sum())
+
+    @lru_cache(None)
+    def best_pairing(remaining):
+        if not remaining:
+            return 0.0, ()
+        first = remaining[0]
+        candidates = []
+        for other in remaining[1:]:
+            rest = tuple(x for x in remaining if x not in (first, other))
+            rest_cost, rest_pairs = best_pairing(rest)
+            pair = (first, other)
+            candidates.append((pair_cost(*pair) + rest_cost, (pair,) + rest_pairs))
+        return min(candidates, key=lambda item: (item[0], item[1]))
+
+    _, index_pairs = best_pairing(tuple(range(len(dev_fights))))
+    pairs = [tuple(sorted((dev_fights[i], dev_fights[j]))) for i, j in index_pairs]
+    return sorted(pairs)
+
+
+def make_holdout_folds(records, split_records=None,
+                       holdout_fight=C.DEFAULT_HOLDOUT_FIGHT,
+                       n_splits=C.DEV_FOLDS):
+    """Return ``(development_records, test_records, folds, fight_pairs)``.
+
+    ``split_records`` may include extra rows (the gate's excluded clips) so all
+    tasks derive the same fight pairs.  Returned fold indices address the reset
+    development frame only.
+    """
+    source = records if split_records is None else split_records
+    pairs = paired_fight_folds(source, holdout_fight, n_splits)
+    dev = records[records["fight"] != holdout_fight].reset_index(drop=True)
+    test = records[records["fight"] == holdout_fight].reset_index(drop=True)
+    idx = np.arange(len(dev))
+    folds = []
+    for pair in pairs:
+        is_val = dev["fight"].isin(pair).to_numpy()
+        folds.append((idx[~is_val], idx[is_val]))
+    return dev, test, folds, pairs
 
 
 def make_lofo_folds(records):
@@ -74,9 +164,11 @@ def evaluate(model, loader, device, crit_ph, crit_pr, pressure_weight):
         "pressure_true": np.array(pr_true), "pressure_pred": np.array(pr_pred),
         "pressure_prob": (np.concatenate(pr_prob) if pr_prob else
                           np.empty((0, C.NUM_PRESSURE_CLASSES), dtype=np.float32)),
-        "phase_f1": f1_score(ph_true, ph_pred, average="macro", zero_division=0) if ph_true else None,
+        "phase_f1": f1_score(ph_true, ph_pred, labels=range(C.NUM_PHASE_CLASSES),
+                              average="macro", zero_division=0) if ph_true else None,
         "phase_acc": float(np.mean(np.array(ph_true) == np.array(ph_pred))) if ph_true else None,
-        "pressure_f1": f1_score(pr_true, pr_pred, average="macro", zero_division=0) if pr_true else None,
+        "pressure_f1": f1_score(pr_true, pr_pred, labels=range(C.NUM_PRESSURE_CLASSES),
+                                 average="macro", zero_division=0) if pr_true else None,
         "pressure_acc": float(np.mean(np.array(pr_true) == np.array(pr_pred))) if pr_true else None,
     }
 

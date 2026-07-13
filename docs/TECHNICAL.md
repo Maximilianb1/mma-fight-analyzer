@@ -275,28 +275,34 @@ phase_labels, pressure_labels}})` — `load_phase_model()` rebuilds the exact ar
 
 ### 6.2 Cross-validation protocol
 
-`StratifiedGroupKFold(n_splits=4, groups=fight, y=phase)` — **no clip from a validation fight
-ever appears in training**. Stratification spreads the minority phases across folds as far as
-11 groups allow. `--lofo` switches to leave-one-fight-out (11 folds, one held-out fight each;
-results in `outputs/phase_lofo/`). Per fold the script saves: best checkpoint
+`Paddy Pimblett vs Michael Chandler` is reserved as a one-fight final test set. It is never used
+for early stopping, threshold or smoothing selection, model/architecture comparison, ablation,
+or hyperparameter tuning. The other ten fights are deterministically paired into five folds:
+each fold trains on eight complete fights and validates on two. The pairing balances clip count,
+non-fight clips, phase labels, and pressure labels, and the exact same pairs are reused by every
+candidate. Thus **no clip from a validation fight ever appears in its training fold**. `--lofo`
+switches to leave-one-development-fight-out. Per fold the script saves: best checkpoint
 (`<tag>_fold<i>.pt`), validation predictions with per-clip fight names
 (`<tag>_fold<i>_preds.npz`), and the training history JSON. `<tag>` encodes the variant
 (`r2plus1d`, `lstm_pressureonly`, `r2plus1d_nomask`, …) so ablations never overwrite the main run.
 
-When all folds exist, out-of-fold predictions are concatenated and reported (§7).
-**Known impurity:** early stopping is tuned on the reported fold (nested CV would fix it at 3×
-compute); stated as a limitation in the report.
+When all folds exist, development out-of-fold predictions are concatenated and reported (§7).
+The untouched fight makes final evaluation independent even though early stopping happens inside
+each development fold.
 
-`--final` trains one model on **all** fights (no validation, fixed 12 epochs) — this is the
-deployment checkpoint used by inference, never used for reported metrics.
+`--final` trains one model on all **ten development fights**. The notebook uses the median best
+epoch from the five folds, freezes the model, and evaluates it exactly once on the untouched
+fight. That checkpoint is also used by the inference demo.
 
 ### 6.3 Gate (`scripts/train_gate.py`)
 
-75/25 **fight-grouped** split (`GroupShuffleSplit`). `BCEWithLogitsLoss` with
-`pos_weight = N_neg/N_pos ≈ 7.6` to counter the 156-vs-1159 imbalance. AdamW lr 1e-4, 8 epochs,
-best-val-AUC checkpoint. After training, the precision-recall curve on validation picks the
-threshold maximizing F1; it is stored inside `gate.pt` and used verbatim at inference.
-Reported: ROC-AUC and average precision.
+The gate uses the same five development fight pairs and untouched test fight as phase/pressure.
+`BCEWithLogitsLoss(pos_weight=N_neg/N_pos)` counters the 156-vs-1159 imbalance. AdamW lr 1e-4,
+8 epochs, best-validation-AUC checkpoint per fold. Four frames are loaded with one NPZ decode,
+flattened through ResNet-18, and averaged back to clip probability. Development OOF predictions
+select a cost-aware threshold: maximize non-fight rejection subject to retaining at least 98% of
+real fight clips. A final gate trains on all ten development fights for the median best epoch;
+that frozen model and threshold are evaluated once on the holdout and stored in `gate.pt`.
 
 ---
 
@@ -363,13 +369,17 @@ phase, pressure, phase_conf, pressure_conf}`.
 |---|---|---|
 | `data/raw/<fight>/…` | `download_data.py` | clips + labels CSVs |
 | `data/cache/<fight>/<clip>.npz` | `preprocess.py` | frames `(16,128,228,3)` u8, mask `(16,128,228)` i8 |
-| `outputs/gate/gate.pt` | `train_gate.py` | gate weights + `{threshold, val_auc, val_ap}` |
+| `outputs/gate/gate.pt` | `train_gate.py --final` | dev-trained gate + OOF-selected threshold |
+| `outputs/gate/gate_metrics.json` | gate aggregation | five-fold development OOF metrics |
+| `outputs/gate/gate_holdout_metrics.json` | `train_gate.py --final` | untouched-fight gate test |
 | `outputs/phase/<tag>_fold<i>.pt` | `train_phase.py` | best fold checkpoint (+meta) |
 | `outputs/phase/<tag>_fold<i>_preds.npz` | `train_phase.py` | val y_true/y_pred per task + per-clip fight names |
 | `outputs/phase/<tag>_metrics.json` | aggregation | OOF metrics, per-class report, per-fight table |
 | `outputs/phase/confusion_*_<tag>.png` | aggregation | confusion matrices |
 | `outputs/phase/model_comparison.png` | `evaluate.py` | cross-model bar chart |
-| `outputs/phase/<tag>_final.pt` | `train_phase.py --final` | deployment model (all fights) |
+| `outputs/phase/<tag>_final.pt` | `train_phase.py --final` | deployment model (10 dev fights) |
+| `outputs/phase/<tag>_holdout_metrics.json` | `train_phase.py --final` | untouched-fight test |
+| `outputs/report/pipeline_holdout_metrics.json` | holdout evaluator | frozen end-to-end test |
 | `<video>_labeled.mp4` + `.json` | `infer.py` | annotated video + per-window log |
 | `outputs/identity_prompt.png` | `infer.py` | the A/B frame shown at the identity prompt |
 
@@ -378,11 +388,12 @@ phase, pressure, phase_conf, pressure_conf}`.
 ```bash
 python scripts/download_data.py                         # Drive → data/raw
 python scripts/preprocess.py [--yolo-conf 0.35]         # → data/cache  (once)
-python scripts/train_gate.py                            # → outputs/gate/gate.pt
-python scripts/train_phase.py --model {r2plus1d,lstm}   # 4-fold CV
+python scripts/train_gate.py --folds all                # 5-fold development OOF
+python scripts/train_gate.py --final                    # dev train + one-shot holdout
+python scripts/train_phase.py --model {r2plus1d,lstm}   # 5-fold development CV
         [--task both|phase|pressure] [--no-mask] [--lofo] [--folds 0,2]
-        [--k 4] [--epochs 25] [--batch-size N] [--pressure-weight 0.5]
-python scripts/train_phase.py --model r2plus1d --final  # deployment model
+        [--k 5] [--epochs 25] [--batch-size N] [--pressure-weight 0.5]
+python scripts/train_phase.py --model r2plus1d --final  # dev model + holdout test
 python scripts/evaluate.py [--models r2plus1d,lstm]     # comparison chart
 python scripts/infer.py --video f.mp4 [--f1-name X --f2-name Y]
         [--f1-color red --f2-color black]               # non-interactive identity
