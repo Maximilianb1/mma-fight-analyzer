@@ -15,13 +15,22 @@ The system reads a complete fight video in consecutive 5-second windows and prod
 
 ## Pipeline
 
-```text
-video
-  -> 5-second windows
-  -> fight/non-fight gate (ResNet-18)
-  -> fighter detection (YOLOv8) and identity tracking
-  -> phase model + pressure model (R(2+1)D-18)
-  -> labels, boxes, original audio, and JSON timeline
+```mermaid
+flowchart LR
+    V["Fight video"] --> W["Consecutive 5-second windows"]
+    W --> G{"Fight / non-fight gate<br/>ResNet-18"}
+    G -->|fight| I["YOLOv8 tracks<br/>+ identity mask"]
+    I --> C["Phase model + pressure model<br/>R(2+1)D-18"]
+    G -->|non-fight| O["Annotated MP4<br/>+ JSON + original audio"]
+    C --> O
+```
+
+```mermaid
+flowchart LR
+    D["10 development fights"] --> F["Five fight-level<br/>validation folds"]
+    F --> S["Freeze architecture,<br/>thresholds, and epochs"]
+    S --> T["Train on all 10<br/>development fights"]
+    T --> H["Evaluate once on<br/>one untouched fight"]
 ```
 
 The deployed identity tracker combines a one-time user confirmation, comparative shorts-color evidence, and temporal continuity. It deliberately stops assigning identity during merged or ambiguous grappling frames instead of risking a fighter swap.

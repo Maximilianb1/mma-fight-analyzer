@@ -234,8 +234,12 @@ def train_model(
     label_smoothing=0.05,
     log_prefix="",
 ):
-    """Fine-tune with AMP; early stopping and checkpointing on validation phase macro-F1.
-    When val_loader is None (final full-data training) runs all epochs and saves the last."""
+    """Fine-tune with AMP and checkpoint on the available validation heads.
+
+    Multi-task runs monitor phase macro-F1 plus half the pressure macro-F1;
+    single-head runs monitor that head alone.  Without a validation loader,
+    final full-data training runs every requested epoch and saves the last.
+    """
     model.to(device)
     crit_ph = nn.CrossEntropyLoss(
         weight=phase_weights.to(device) if phase_weights is not None else None,

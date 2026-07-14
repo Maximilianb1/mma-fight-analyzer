@@ -1,0 +1,6 @@
+true_label,Striking,Grappling,Clinch,Transition,Neutral
+Striking,39,0,0,1,11
+Grappling,0,59,0,20,0
+Clinch,0,0,0,0,1
+Transition,2,3,0,8,0
+Neutral,5,0,0,0,7
