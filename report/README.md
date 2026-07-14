@@ -6,7 +6,7 @@ This folder contains the Overleaf-ready source for the final project report.
 
 Upload the complete `report/` folder to a blank Overleaf project and set `main.tex` as the main document. All generated figures are already included, so no Python execution is required on Overleaf.
 
-Before submission, replace the highlighted placeholder in Ethics Statement section 3a with the students' independent reflection. The course explicitly prohibits using an LLM for that paragraph.
+Ethics Statement section 3a contains the students' independently written responses. They were inserted verbatim because the course explicitly prohibits using an LLM to write or revise that paragraph; both students should verify the wording before submission.
 
 ## Local compilation
 

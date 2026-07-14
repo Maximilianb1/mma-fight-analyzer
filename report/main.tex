@@ -253,6 +253,10 @@ Future work should collect more fights and multiple independent labels, report C
 \clearpage
 \onecolumn
 
+\subsection{Project scope and proof of concept}
+
+This project deliberately pursued a broader scope than a single clip classifier. We created and labeled a task-specific dataset from scratch and connected broadcast-content filtering, spatiotemporal classification, fighter detection, identity assignment, temporal tracking, and audiovisual rendering into one runnable system. We did not find an existing dataset that jointly provides our five phase labels, directional pressure, non-fight examples, and fighter identity for UFC broadcasts. We therefore view the present system as an end-to-end proof of concept rather than a finished product. Its imperfect pressure results are important evidence of the remaining difficulty, while the functioning demo establishes that the complete pipeline is technically feasible. We believe that substantially more annotated fights, independent labels, stronger identity models, broader hyperparameter exploration, and greater compute could turn this concept into a useful video-indexing and analysis tool. We invite the course staff to run the included demo and assess the complete system alongside its measured limitations.
+
 \section{Ethics Statement: Project Stakeholders and Implications Assessment}
 
 \noindent\textbf{1. Introduction}
@@ -289,9 +293,7 @@ The project authors are responsible for accurate documentation, model limitation
 \smallskip
 \noindent\textbf{3a. What do you think needs to be added/changed in the Generative AI responses, to make the explanation more ethical? (1 paragraph max)}
 
-\begin{center}
-\fcolorbox{orange}{warning}{\parbox{0.80\textwidth}{\textbf{Required student-authored reflection.} Replace this box with one paragraph written independently by Maximilian and Reut. The course instructions explicitly prohibit using an LLM for Section 3a.}}
-\end{center}
+\noindent\textbf{Maximilian Bershtman:} I feel like chatgpt covered the explanations in pretty ethical way but there are few stuff that can make the explanations more ethical. For example the ai could have methoined that the data set is small and nade by one person and maybe not relaible not only to the third group of steak holders but also to the other groups. also maybe it would be good to also mention that even the phase classification that worked better then the pressure classification is also not very realible because of the limitations of this research. \textbf{Reut Yosefa Vitzner:} The generative AI responses should include its confidence levels along with explanations of their known limitations, assumptions and biases. This would help stakeholders understand when the model is uncertain and avoid treating its predictions as factual. In addition, adding explanations regarding what influenced its decision making would help users evaluate the decision and understand it's source.
 
 \bibliographystyle{ieeetr}
 \bibliography{references}
