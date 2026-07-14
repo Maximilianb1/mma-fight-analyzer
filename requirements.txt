@@ -10,5 +10,7 @@ seaborn>=0.12
 tqdm>=4.65
 gdown>=5.0
 
-# dataset labeling tool only (not needed for training/inference)
+# interactive labeling/inference tools and browser-compatible demo video output
 streamlit>=1.30
+imageio-ffmpeg>=0.5
+pytest>=7.4

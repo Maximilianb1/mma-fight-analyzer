@@ -9,20 +9,20 @@ PHASE_LABELS = [
 ]
 PRESSURE_LABELS = ["Fighter 1", "Fighter 2", "Mutual"]
 
-PHASE2IDX = {l: i for i, l in enumerate(PHASE_LABELS)}
-IDX2PHASE = {i: l for l, i in PHASE2IDX.items()}
-PRESSURE2IDX = {l: i for i, l in enumerate(PRESSURE_LABELS)}
-IDX2PRESSURE = {i: l for l, i in PRESSURE2IDX.items()}
+PHASE2IDX = {label: index for index, label in enumerate(PHASE_LABELS)}
+IDX2PHASE = {index: label for label, index in PHASE2IDX.items()}
+PRESSURE2IDX = {label: index for index, label in enumerate(PRESSURE_LABELS)}
+IDX2PRESSURE = {index: label for label, index in PRESSURE2IDX.items()}
 
 NUM_PHASE_CLASSES = len(PHASE_LABELS)
 NUM_PRESSURE_CLASSES = len(PRESSURE_LABELS)
 
 # Clip geometry
 CLIP_SECONDS = 5
-NUM_FRAMES = 16          # frames sampled per clip (cached once by scripts/preprocess.py)
-CACHE_SHORT_SIDE = 128   # cached frame height for 16:9 sources (width follows aspect)
-CROP_SIZE = 112          # model input resolution
-GATE_FRAMES = 4          # frames per clip used by the fight/no-fight gate
+NUM_FRAMES = 16  # frames sampled per clip (cached once by scripts/preprocess.py)
+CACHE_SHORT_SIDE = 128  # cached frame height for 16:9 sources (width follows aspect)
+CROP_SIZE = 112  # model input resolution
+GATE_FRAMES = 4  # frames per clip used by the fight/no-fight gate
 
 # Normalization stats per backbone
 IMAGENET_MEAN = [0.485, 0.456, 0.406]

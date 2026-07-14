@@ -14,8 +14,9 @@ from sklearn.metrics import accuracy_score, f1_score
 
 
 def keys(data):
-    return np.char.add(np.char.add(data["fight"].astype(str), "\0"),
-                       data["filename"].astype(str))
+    return np.char.add(
+        np.char.add(data["fight"].astype(str), "\0"), data["filename"].astype(str)
+    )
 
 
 def routed_task(gate, downstream, task, n_classes):
@@ -29,11 +30,25 @@ def routed_task(gate, downstream, task, n_classes):
         "n_fight_clips": int(len(y_true)),
         "gate_pass_rate": float(passed.mean()),
         "conditional_accuracy": float(accuracy_score(y_true, y_pred)),
-        "conditional_macro_f1": float(f1_score(
-            y_true, y_pred, labels=range(n_classes), average="macro", zero_division=0)),
+        "conditional_macro_f1": float(
+            f1_score(
+                y_true,
+                y_pred,
+                labels=range(n_classes),
+                average="macro",
+                zero_division=0,
+            )
+        ),
         "end_to_end_accuracy": float(accuracy_score(y_true, routed)),
-        "end_to_end_macro_f1": float(f1_score(
-            y_true, routed, labels=range(n_classes), average="macro", zero_division=0)),
+        "end_to_end_macro_f1": float(
+            f1_score(
+                y_true,
+                routed,
+                labels=range(n_classes),
+                average="macro",
+                zero_division=0,
+            )
+        ),
         "rejected_fight_clips": int((~passed).sum()),
     }
 
@@ -42,8 +57,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--gate", default="outputs/gate/gate_holdout_predictions.npz")
     parser.add_argument("--phase", required=True)
-    parser.add_argument("--pressure", default=None,
-                        help="defaults to --phase when one checkpoint predicts both tasks")
+    parser.add_argument(
+        "--pressure",
+        default=None,
+        help="defaults to --phase when one checkpoint predicts both tasks",
+    )
     parser.add_argument("--out", default="outputs/report/pipeline_holdout_metrics.json")
     args = parser.parse_args()
 

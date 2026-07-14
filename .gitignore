@@ -1,14 +1,31 @@
+# Python and local environments
 __pycache__/
-*.pyc
+*.py[cod]
+.pytest_cache/
+.coverage
 .ipynb_checkpoints/
+.venv/
+venv/
 
-# data & artifacts — never commit (course requires code-only ZIP)
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Dataset and generated artifacts
 data/raw/
 data/cache/
+data/Unseen fights/
 outputs/
+tmp/
+*.log
 *.pt
 *.npz
 *.mp4
 yolov8*.pt
+
+# Large experiment archives stay outside Git
 mma_cache*.zip
 mma_experiment_outputs*.zip
+gate_results*.zip

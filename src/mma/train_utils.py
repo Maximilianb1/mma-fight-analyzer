@@ -31,8 +31,9 @@ def make_folds(records, n_splits=4, seed=C.RANDOM_SEED):
     return list(skf.split(records, y, groups))
 
 
-def paired_fight_folds(records, holdout_fight=C.DEFAULT_HOLDOUT_FIGHT,
-                       n_splits=C.DEV_FOLDS):
+def paired_fight_folds(
+    records, holdout_fight=C.DEFAULT_HOLDOUT_FIGHT, n_splits=C.DEV_FOLDS
+):
     """Return a deterministic development/test protocol at fight level.
 
     One fight is held out completely.  The remaining ``2 * n_splits`` fights
@@ -53,30 +54,39 @@ def paired_fight_folds(records, holdout_fight=C.DEFAULT_HOLDOUT_FIGHT,
     if len(dev_fights) != 2 * n_splits:
         raise ValueError(
             f"paired {n_splits}-fold CV needs exactly {2 * n_splits} development fights; "
-            f"found {len(dev_fights)} after holding out {holdout_fight!r}")
+            f"found {len(dev_fights)} after holding out {holdout_fight!r}"
+        )
 
     feature_rows = []
     for fight in dev_fights:
         group = records[records["fight"] == fight]
         excluded = group["excluded"].astype(bool)
         kept = group[~excluded]
-        feature_rows.append([
-            len(group), int(excluded.sum()),
-            *[int((kept["phase_label"] == label).sum()) for label in C.PHASE_LABELS],
-            *[int((kept["pressure_label"] == label).sum()) for label in C.PRESSURE_LABELS],
-        ])
+        feature_rows.append(
+            [
+                len(group),
+                int(excluded.sum()),
+                *[
+                    int((kept["phase_label"] == label).sum())
+                    for label in C.PHASE_LABELS
+                ],
+                *[
+                    int((kept["pressure_label"] == label).sum())
+                    for label in C.PRESSURE_LABELS
+                ],
+            ]
+        )
 
     features = np.asarray(feature_rows, dtype=np.float64)
     target = features.sum(axis=0) / n_splits
     # total, excluded, five phase classes, three pressure classes
-    weights = np.asarray([0.5, 1.0, 0.5, 1.0, 3.0, 2.0, 1.0,
-                          0.75, 0.75, 0.5])
+    weights = np.asarray([0.5, 1.0, 0.5, 1.0, 3.0, 2.0, 1.0, 0.75, 0.75, 0.5])
     class_can_cover_every_fold = (features > 0).sum(axis=0) >= n_splits
 
     def pair_cost(i, j):
         pair = features[i] + features[j]
         normalized = (pair - target) / np.maximum(target, 5.0)
-        cost = float(np.sum(normalized ** 2 * weights))
+        cost = float(np.sum(normalized**2 * weights))
         # Indices 0/1 are total/excluded; the remainder are semantic labels.
         missing = class_can_cover_every_fold[2:] & (pair[2:] == 0)
         return cost + 100.0 * float(missing.sum())
@@ -99,9 +109,12 @@ def paired_fight_folds(records, holdout_fight=C.DEFAULT_HOLDOUT_FIGHT,
     return sorted(pairs)
 
 
-def make_holdout_folds(records, split_records=None,
-                       holdout_fight=C.DEFAULT_HOLDOUT_FIGHT,
-                       n_splits=C.DEV_FOLDS):
+def make_holdout_folds(
+    records,
+    split_records=None,
+    holdout_fight=C.DEFAULT_HOLDOUT_FIGHT,
+    n_splits=C.DEV_FOLDS,
+):
     """Return ``(development_records, test_records, folds, fight_pairs)``.
 
     ``split_records`` may include extra rows (the gate's excluded clips) so all
@@ -123,15 +136,19 @@ def make_holdout_folds(records, split_records=None,
 def make_lofo_folds(records):
     """Leave-one-fight-out: one fold per fight. Cleaner story than K folds, ~3x the compute."""
     idx = np.arange(len(records))
-    return [(idx[(records["fight"] != f).values], idx[(records["fight"] == f).values])
-            for f in sorted(records["fight"].unique())]
+    return [
+        (idx[(records["fight"] != f).values], idx[(records["fight"] == f).values])
+        for f in sorted(records["fight"].unique())
+    ]
 
 
 def class_weights(label_indices, n_classes):
     counts = Counter(label_indices)
     n = len(label_indices)
-    return torch.tensor([n / (n_classes * counts.get(c, 1)) for c in range(n_classes)],
-                        dtype=torch.float32)
+    return torch.tensor(
+        [n / (n_classes * counts.get(c, 1)) for c in range(n_classes)],
+        dtype=torch.float32,
+    )
 
 
 @torch.no_grad()
@@ -158,47 +175,101 @@ def evaluate(model, loader, device, crit_ph, crit_pr, pressure_weight):
         n += video.size(0)
     return {
         "loss": total_loss / max(n, 1),
-        "phase_true": np.array(ph_true), "phase_pred": np.array(ph_pred),
-        "phase_prob": (np.concatenate(ph_prob) if ph_prob else
-                       np.empty((0, C.NUM_PHASE_CLASSES), dtype=np.float32)),
-        "pressure_true": np.array(pr_true), "pressure_pred": np.array(pr_pred),
-        "pressure_prob": (np.concatenate(pr_prob) if pr_prob else
-                          np.empty((0, C.NUM_PRESSURE_CLASSES), dtype=np.float32)),
-        "phase_f1": f1_score(ph_true, ph_pred, labels=range(C.NUM_PHASE_CLASSES),
-                              average="macro", zero_division=0) if ph_true else None,
-        "phase_acc": float(np.mean(np.array(ph_true) == np.array(ph_pred))) if ph_true else None,
-        "pressure_f1": f1_score(pr_true, pr_pred, labels=range(C.NUM_PRESSURE_CLASSES),
-                                 average="macro", zero_division=0) if pr_true else None,
-        "pressure_acc": float(np.mean(np.array(pr_true) == np.array(pr_pred))) if pr_true else None,
+        "phase_true": np.array(ph_true),
+        "phase_pred": np.array(ph_pred),
+        "phase_prob": (
+            np.concatenate(ph_prob)
+            if ph_prob
+            else np.empty((0, C.NUM_PHASE_CLASSES), dtype=np.float32)
+        ),
+        "pressure_true": np.array(pr_true),
+        "pressure_pred": np.array(pr_pred),
+        "pressure_prob": (
+            np.concatenate(pr_prob)
+            if pr_prob
+            else np.empty((0, C.NUM_PRESSURE_CLASSES), dtype=np.float32)
+        ),
+        "phase_f1": f1_score(
+            ph_true,
+            ph_pred,
+            labels=range(C.NUM_PHASE_CLASSES),
+            average="macro",
+            zero_division=0,
+        )
+        if ph_true
+        else None,
+        "phase_acc": float(np.mean(np.array(ph_true) == np.array(ph_pred)))
+        if ph_true
+        else None,
+        "pressure_f1": f1_score(
+            pr_true,
+            pr_pred,
+            labels=range(C.NUM_PRESSURE_CLASSES),
+            average="macro",
+            zero_division=0,
+        )
+        if pr_true
+        else None,
+        "pressure_acc": float(np.mean(np.array(pr_true) == np.array(pr_pred)))
+        if pr_true
+        else None,
     }
 
 
-def train_model(model, train_loader, val_loader, device, ckpt_path, ckpt_meta,
-                epochs=25, lr=3e-4, backbone_lr_factor=0.1, weight_decay=1e-4,
-                patience=6, pressure_weight=0.5,
-                phase_weights=None, pressure_weights=None, label_smoothing=0.05,
-                log_prefix=""):
+def train_model(
+    model,
+    train_loader,
+    val_loader,
+    device,
+    ckpt_path,
+    ckpt_meta,
+    epochs=25,
+    lr=3e-4,
+    backbone_lr_factor=0.1,
+    weight_decay=1e-4,
+    patience=6,
+    pressure_weight=0.5,
+    phase_weights=None,
+    pressure_weights=None,
+    label_smoothing=0.05,
+    log_prefix="",
+):
     """Fine-tune with AMP; early stopping and checkpointing on validation phase macro-F1.
     When val_loader is None (final full-data training) runs all epochs and saves the last."""
     model.to(device)
     crit_ph = nn.CrossEntropyLoss(
         weight=phase_weights.to(device) if phase_weights is not None else None,
-        label_smoothing=label_smoothing)
+        label_smoothing=label_smoothing,
+    )
     crit_pr = nn.CrossEntropyLoss(
         weight=pressure_weights.to(device) if pressure_weights is not None else None,
-        label_smoothing=label_smoothing)
+        label_smoothing=label_smoothing,
+    )
     bb, head = backbone_and_head_params(model)
-    opt = torch.optim.AdamW([
-        {"params": bb, "lr": lr * backbone_lr_factor},
-        {"params": head, "lr": lr},
-    ], weight_decay=weight_decay)
-    sched = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, mode="max", factor=0.5, patience=2)
+    opt = torch.optim.AdamW(
+        [
+            {"params": bb, "lr": lr * backbone_lr_factor},
+            {"params": head, "lr": lr},
+        ],
+        weight_decay=weight_decay,
+    )
+    sched = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        opt, mode="max", factor=0.5, patience=2
+    )
     use_amp = device.type == "cuda"
     scaler = torch.amp.GradScaler(enabled=use_amp)
 
-    history = {"train_loss": [], "val_loss": [], "val_phase_f1": [],
-               "val_phase_acc": [], "val_pressure_f1": [], "val_pressure_acc": [],
-               "monitor": [], "lr_backbone": [], "lr_head": []}
+    history = {
+        "train_loss": [],
+        "val_loss": [],
+        "val_phase_f1": [],
+        "val_phase_acc": [],
+        "val_pressure_f1": [],
+        "val_pressure_acc": [],
+        "monitor": [],
+        "lr_backbone": [],
+        "lr_head": [],
+    }
     best_f1, bad_epochs = -1.0, 0
 
     for epoch in range(1, epochs + 1):
@@ -223,8 +294,10 @@ def train_model(model, train_loader, val_loader, device, ckpt_path, ckpt_meta,
         history["train_loss"].append(train_loss)
 
         if val_loader is None:
-            print(f"{log_prefix}epoch {epoch:>2}/{epochs} loss={train_loss:.4f} "
-                  f"({time.time() - t0:.0f}s)")
+            print(
+                f"{log_prefix}epoch {epoch:>2}/{epochs} loss={train_loss:.4f} "
+                f"({time.time() - t0:.0f}s)"
+            )
             continue
 
         val = evaluate(model, val_loader, device, crit_ph, crit_pr, pressure_weight)
@@ -244,10 +317,12 @@ def train_model(model, train_loader, val_loader, device, ckpt_path, ckpt_meta,
         history["monitor"].append(monitor)
         history["lr_backbone"].append(opt.param_groups[0]["lr"])
         history["lr_head"].append(opt.param_groups[1]["lr"])
-        print(f"{log_prefix}epoch {epoch:>2}/{epochs} loss={train_loss:.4f} "
-              f"val_loss={val['loss']:.4f} phF1={val['phase_f1'] or 0:.3f} "
-              f"phAcc={val['phase_acc'] or 0:.3f} prAcc={val['pressure_acc'] or 0:.3f} "
-              f"({time.time() - t0:.0f}s)")
+        print(
+            f"{log_prefix}epoch {epoch:>2}/{epochs} loss={train_loss:.4f} "
+            f"val_loss={val['loss']:.4f} phF1={val['phase_f1'] or 0:.3f} "
+            f"phAcc={val['phase_acc'] or 0:.3f} prAcc={val['pressure_acc'] or 0:.3f} "
+            f"({time.time() - t0:.0f}s)"
+        )
 
         if monitor > best_f1:
             best_f1, bad_epochs = monitor, 0
@@ -255,7 +330,9 @@ def train_model(model, train_loader, val_loader, device, ckpt_path, ckpt_meta,
         else:
             bad_epochs += 1
             if bad_epochs >= patience:
-                print(f"{log_prefix}early stop at epoch {epoch} (best monitored F1 {best_f1:.3f})")
+                print(
+                    f"{log_prefix}early stop at epoch {epoch} (best monitored F1 {best_f1:.3f})"
+                )
                 break
 
     if val_loader is None:

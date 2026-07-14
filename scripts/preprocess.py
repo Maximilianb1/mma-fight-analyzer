@@ -18,10 +18,16 @@ import pandas as pd
 from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from mma import config as C                                   # noqa: E402
-from mma.data import cache_path, discover_clips               # noqa: E402
-from mma.identity import (COLOR_RANGES, assign_identities,    # noqa: E402
-                          build_masks, coverage, detect_fighters, load_yolo)
+from mma import config as C  # noqa: E402
+from mma.data import cache_path, discover_clips  # noqa: E402
+from mma.identity import (
+    COLOR_RANGES,
+    assign_identities,  # noqa: E402
+    build_masks,
+    coverage,
+    detect_fighters,
+    load_yolo,
+)
 
 
 def read_sampled_frames(video_path, n_frames):
@@ -40,20 +46,27 @@ def read_sampled_frames(video_path, n_frames):
             frames.append(frame)
         i += 1
     cap.release()
-    while frames and len(frames) < n_frames:  # decoder returned fewer frames than reported
+    while (
+        frames and len(frames) < n_frames
+    ):  # decoder returned fewer frames than reported
         frames.append(frames[-1])
     return frames or None
 
 
 def load_meta(meta_path):
     if not Path(meta_path).exists():
-        print(f"ERROR: {meta_path} not found. Create it with columns "
-              f"fight,f1_color,f2_color (colors from: {', '.join(COLOR_RANGES)})")
+        print(
+            f"ERROR: {meta_path} not found. Create it with columns "
+            f"fight,f1_color,f2_color (colors from: {', '.join(COLOR_RANGES)})"
+        )
         sys.exit(1)
     meta = pd.read_csv(meta_path)
     colors = {}
     for _, r in meta.iterrows():
-        f1, f2 = str(r.get("f1_color", "")).strip().lower(), str(r.get("f2_color", "")).strip().lower()
+        f1, f2 = (
+            str(r.get("f1_color", "")).strip().lower(),
+            str(r.get("f2_color", "")).strip().lower(),
+        )
         if f1 in COLOR_RANGES and f2 in COLOR_RANGES:
             colors[r["fight"]] = (f1, f2)
     return colors
@@ -69,8 +82,10 @@ def main():
 
     colors = load_meta(args.meta)
     records = discover_clips(args.raw_dir, include_excluded=True)
-    print(f"{len(records)} clips ({int(records.excluded.sum())} excluded) "
-          f"across {records.fight.nunique()} fights")
+    print(
+        f"{len(records)} clips ({int(records.excluded.sum())} excluded) "
+        f"across {records.fight.nunique()} fights"
+    )
     missing_colors = sorted(set(records.fight) - set(colors))
     if missing_colors:
         print(f"WARNING: no shorts colors for {missing_colors} -> zero identity masks")
@@ -102,15 +117,21 @@ def main():
             else:
                 mask = np.zeros((C.NUM_FRAMES, ch, cw), np.int8)
 
-            small = np.stack([cv2.cvtColor(cv2.resize(f, (cw, ch)), cv2.COLOR_BGR2RGB)
-                              for f in frames]).astype(np.uint8)
+            small = np.stack(
+                [
+                    cv2.cvtColor(cv2.resize(f, (cw, ch)), cv2.COLOR_BGR2RGB)
+                    for f in frames
+                ]
+            ).astype(np.uint8)
             out.parent.mkdir(parents=True, exist_ok=True)
             np.savez_compressed(out, frames=small, mask=mask)
         if n_masked:
             stats[fight] = (both_sum / n_masked, any_sum / n_masked)
 
     if stats:
-        print("\nIdentity coverage (fraction of frames with both / >=1 fighter assigned):")
+        print(
+            "\nIdentity coverage (fraction of frames with both / >=1 fighter assigned):"
+        )
         for fight, (both, any_) in stats.items():
             flag = "  <-- CHECK COLORS" if both < 0.5 else ""
             print(f"  {fight:<42} both={both:.2f}  any={any_:.2f}{flag}")

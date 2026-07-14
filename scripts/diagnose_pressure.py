@@ -52,17 +52,29 @@ def main():
                 verdict = "(swap scores higher, but n too small to be sure)"
         print(f"{fight:<42} {m.sum():>4} {straight:>9.3f} {swapped:>8.3f}  {verdict}")
 
-    print(f"\noverall: straight={np.mean(yt == yp):.3f}  swapped={np.mean(yt == yp_swapped):.3f}")
+    print(
+        f"\noverall: straight={np.mean(yt == yp):.3f}  swapped={np.mean(yt == yp_swapped):.3f}"
+    )
     if suspects:
-        print(f"\n{len(suspects)} fight(s) likely have f1_color/f2_color swapped in data/fights_meta.csv:")
+        print(
+            f"\n{len(suspects)} fight(s) likely have f1_color/f2_color swapped in data/fights_meta.csv:"
+        )
         for s in suspects:
             print(f"  - {s}")
-        print("\nFix: swap the two colors for those fights in fights_meta.csv, delete their")
-        print("folders under data/cache/, rerun scripts/preprocess.py (only they re-process),")
-        print("then retrain. Phase is barely affected; pressure supervision becomes consistent.")
+        print(
+            "\nFix: swap the two colors for those fights in fights_meta.csv, delete their"
+        )
+        print(
+            "folders under data/cache/, rerun scripts/preprocess.py (only they re-process),"
+        )
+        print(
+            "then retrain. Phase is barely affected; pressure supervision becomes consistent."
+        )
     else:
         print("\nNo swap signature found - low pressure accuracy is not explained by")
-        print("swapped color anchors (see DECISIONS.md B8 and the label-noise discussion).")
+        print(
+            "swapped color anchors (see DECISIONS.md B8 and the label-noise discussion)."
+        )
 
 
 if __name__ == "__main__":

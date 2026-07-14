@@ -1,169 +1,207 @@
-# MMA Fight Analyzer — Phase & Pressure Recognition in UFC Broadcasts
+# MMA Fight Analyzer
 
-Final project for **046217 Deep Learning** (Technion, Spring 2026).
-Maximilian Bershtman · Reut Yosefa Vitzner
+Deep-learning pipeline for recognizing fight footage, fight phase, and pressure in UFC broadcast video.
 
-Given a raw UFC broadcast video, the system splits it into 5-second windows, filters out
-non-fight segments (replays, walkouts, breaks), tracks the two fighters, classifies **what is
-happening** (fight phase) and **who is pushing the action** (pressure), and writes back an
-annotated video with boxes and labels.
+**Technion Deep Learning final project, Spring 2026** — Maximilian Bershtman and Reut Yosefa Vitzner
 
-```
- raw fight video
-      │  split into 5s windows
-      ▼
- ┌─────────────┐  non-fight   ┌──────────────────────────┐
- │  GATE       │─────────────▶│ "NON-FIGHT SEGMENT" tag  │
- │  ResNet-18  │              └──────────────────────────┘
- └─────┬───────┘
-       │ fight
-       ▼
- ┌─────────────────────────┐   one-time user prompt:
- │ YOLOv8 person detection │   "which box is Fighter 1?"
- │ + IoU tracking          │──▶ identity anchored, then propagated
- │ + identity masks (±1)   │   across windows via appearance histograms
- └─────┬───────────────────┘
-       │ RGB (3ch) + identity mask (1ch), 16 frames @ 112×112
-       ▼
- ┌──────────────────────────────┐
- │ PHASE+PRESSURE model         │  two architectures compared:
- │  A: R(2+1)D-18 (Kinetics)    │  phase ∈ {Striking, Grappling/Ground,
- │  B: ResNet-18 + LSTM         │   Clinch, Transition/Takedown, Neutral}
- │  shared backbone, dual heads │  pressure ∈ {Fighter 1, Fighter 2, Mutual}
- └─────┬────────────────────────┘
-       ▼
- annotated video (boxes + phase + pressure per 5s window)
+The system reads a complete fight video in consecutive 5-second windows and produces an annotated video. Each window shows:
+
+- fight or non-fight footage;
+- one of five fight phases;
+- which fighter is applying pressure, or whether pressure is mutual;
+- tracked fighter boxes with persistent names.
+
+> **Fighter convention:** Fighter 1 is the name shown on the **left** of the broadcast timer. Fighter 2 is the name on the right.
+
+## Pipeline
+
+```text
+video
+  -> 5-second windows
+  -> fight/non-fight gate (ResNet-18)
+  -> fighter detection (YOLOv8) and identity tracking
+  -> phase model + pressure model (R(2+1)D-18)
+  -> labels, boxes, original audio, and JSON timeline
 ```
 
-## Repository layout
-
-```
-├── README.md
-├── requirements.txt
-├── data/
-│   ├── fights_meta.csv      # per-fight shorts colors (identity anchor for training)
-│   ├── raw/                 # downloaded dataset (gitignored)
-│   └── cache/               # preprocessed clips (gitignored)
-├── scripts/
-│   ├── download_data.py     # fetch dataset ZIPs from Google Drive
-│   ├── preprocess.py        # cache 16 frames + identity mask per clip (run once)
-│   ├── train_gate.py        # fight/no-fight gate
-│   ├── train_phase.py       # phase+pressure models, fight-level K-fold CV
-│   ├── evaluate.py          # model comparison table + charts
-│   └── infer.py             # full pipeline on a new video
-├── src/mma/
-│   ├── config.py            # labels, sizes, normalization stats
-│   ├── data.py              # dataset discovery + PyTorch datasets + clip-consistent augmentation
-│   ├── identity.py          # YOLO detection, shorts-color identity, temporal smoothing, masks
-│   ├── models.py            # GateNet, R(2+1)D/R3D/MC3/LSTM heads + hierarchical pressure
-│   ├── train_utils.py       # training loop (AMP, early stopping), grouped folds, metrics
-│   ├── overlay.py           # drawing boxes/banners on output video
-│   └── pipeline.py          # end-to-end inference
-├── notebooks/
-│   ├── colab_train.ipynb    # thin Colab wrapper that runs the scripts above
-│   ├── kaggle_full_experiments.ipynb # complete T4x2 experiments + selection + demo
-│   └── archive/             # earlier notebook-based experiments
-└── tools/
-    └── labeler.py           # Streamlit tool used to build the dataset
-```
-
-## Dataset
-
-We built the dataset ourselves: 11 full UFC fights cut into 5-second clips and labeled with
-a custom Streamlit tool ([tools/labeler.py](tools/labeler.py)) — ~1300 clips total, of which
-~1160 are live-fight clips with phase + pressure labels and ~150 are marked *excluded*
-(replays/walkouts/breaks; these train the gate). **Fighter 1** is always the fighter whose name
-appears left of the timer in the broadcast overlay.
-
-The dataset is hosted on Google Drive as one ZIP per fight. `scripts/download_data.py`
-downloads and unpacks everything into `data/raw/`.
-
-## Reproducing the experiments
-
-```bash
-pip install -r requirements.txt
-
-# 1. data
-python scripts/download_data.py                 # set the Drive folder ID inside first
-python scripts/preprocess.py                    # one-time cache: frames + identity masks
-
-# 2. gate: 5 development folds, aggregate OOF, then frozen holdout test
-python scripts/train_gate.py --folds all
-python scripts/train_gate.py --final
-
-# 3. phase + pressure, 5-fold fight-level development CV
-python scripts/train_phase.py --model r2plus1d
-python scripts/train_phase.py --model lstm
-python scripts/evaluate.py                      # comparison table + charts
-
-# 4. ablations reported in the paper
-python scripts/train_phase.py --model r2plus1d --no-mask        # no identity channel
-python scripts/train_phase.py --model r2plus1d --task phase     # single-task: phase only
-python scripts/train_phase.py --model r2plus1d --task pressure  # single-task: pressure only
-python scripts/train_phase.py --model r2plus1d --lofo           # leave-one-fight-out CV
-
-# 5. train on all 10 development fights, test the untouched fight, then demo
-python scripts/train_phase.py --model r2plus1d --final
-python scripts/infer.py --video path/to/fight.mp4 --f1-name "Fighter A" --f2-name "Fighter B"
-```
-
-On Colab open `notebooks/colab_train.ipynb`, which runs the same scripts on a GPU runtime.
-Every fold checkpoints separately, so a disconnected session resumes with
-`--folds i` for the missing folds.
-
-For the complete submission experiment suite, open
-`notebooks/kaggle_full_experiments.ipynb` on Kaggle with a T4 x2 accelerator. It runs the gate,
-multi-task/single-task comparison, identity-mask ablation, hierarchical-pressure experiment,
-R3D/MC3 baselines, temporal smoothing, a small tuning pilot, final full-data training, and an
-end-to-end demo. Independent experiments are pinned to the two GPUs in parallel, and all
-metrics, probabilities, plots, checkpoints, and logs are archived from `outputs/`.
-
-### Method notes
-
-- **Untouched final fight.** `Paddy Pimblett vs Michael Chandler` is excluded from model
-  selection, early stopping, threshold selection, architecture comparison, ablations, and
-  hyperparameter tuning. It contains all phase/pressure classes plus non-fight clips, so the
-  frozen final pipeline can be evaluated once on a meaningful test fight.
-- **Fight-level development cross-validation.** The other ten fights form five deterministic
-  folds with exactly two validation fights and eight training fights each. Gate, phase,
-  pressure, architectures, and ablations reuse the identical fight pairs; no fighter/arena
-  appearance crosses from a validation fight into its training fold.
-- **Selection versus testing.** OOF development predictions select models, epoch counts,
-  temporal smoothing, and the gate threshold. Final models train on the ten development fights
-  and are evaluated once on the untouched fight. The holdout is never folded back into tuning.
-- **Identity channel.** The pressure task ("who is pushing the action") is only well-defined if
-  the model knows who Fighter 1 is. We attach a 4th input channel: +1 over Fighter 1's box,
-  −1 over Fighter 2's, 0 elsewhere, produced by YOLOv8 + per-fight shorts-color anchoring +
-  temporal IoU smoothing.
-- **Clip-consistent augmentation.** Crop/flip/color-jitter parameters are drawn once per clip
-  and applied to all 16 frames *and* the identity mask, preserving temporal coherence.
-- **Transfer learning.** Both classifiers start from pretrained weights (Kinetics-400 /
-  ImageNet); the pretrained backbone uses a 10× lower learning rate than the new heads.
-
-Full technical documentation — every tensor shape, decision rule, and pipeline stage for both
-training and inference — is in [docs/TECHNICAL.md](docs/TECHNICAL.md) (or the rendered
-[docs/technical.html](docs/technical.html) with pipeline diagrams). Design decisions, rationale,
-and the experiment backlog are documented in [docs/DECISIONS.md](docs/DECISIONS.md).
-The diagnosis and repair of the pressure task's corrupted identity supervision (including
-negative results) is written up as a case study in
-[docs/PRESSURE_INVESTIGATION.md](docs/PRESSURE_INVESTIGATION.md).
+The deployed identity tracker combines a one-time user confirmation, comparative shorts-color evidence, and temporal continuity. It deliberately stops assigning identity during merged or ambiguous grappling frames instead of risking a fighter swap.
 
 ## Results
 
-Historical out-of-fold results from the earlier 4-fold protocol (kept for comparison until the
-new fixed-holdout experiment finishes):
+Model selection used five fight-level development folds. One complete fight, **Paddy Pimblett vs Michael Chandler**, was kept untouched until every model and threshold choice was frozen.
 
-| Model | Phase macro-F1 | Phase acc | Pressure macro-F1 | Pressure acc |
-|---|---|---|---|---|
-| R(2+1)D-18 | **0.680** | **0.729** | **0.390** | **0.446** |
-| ResNet-18 + LSTM | 0.523 | 0.607 | 0.370 | 0.397 |
+| Component | Development result | Untouched fight |
+|---|---:|---:|
+| Fight gate | 98.0% fight retention; 77.4% non-fight rejection | 100% retention; 73.7% rejection |
+| Phase | macro-F1 0.662; accuracy 0.724 | macro-F1 0.495; accuracy 0.724 |
+| Pressure | macro-F1 0.436; accuracy 0.498 | macro-F1 0.327; accuracy 0.353 |
 
-Per-class, per-fight breakdowns and confusion matrices: `outputs/phase/*_metrics.json`,
-`confusion_*.png`, `model_comparison.png`. The diagnosis and repair of an identity-supervision
-corruption that initially held pressure at chance is documented in
-[docs/PRESSURE_INVESTIGATION.md](docs/PRESSURE_INVESTIGATION.md).
+The gate and broad phase recognition are the strongest parts of the system. Directional pressure is an experimental extension and is less reliable, especially during grappling. See [the complete experiment results](docs/EXPERIMENT_RESULTS_2026-07-14.md) for per-class results, ablations, and negative results.
 
-## Ethics
+## Quick start: interactive demo
 
-An ethics statement (stakeholders, implications, considerations) is included in the project
-report, following the course template.
+Python 3.10 or newer is recommended. A CUDA GPU is strongly recommended for a full fight, but the demo also runs on CPU.
+
+```bash
+git clone https://github.com/Maximilianb1/mma-fight-analyzer.git
+cd mma-fight-analyzer
+python -m venv .venv
+```
+
+Activate the environment:
+
+```bash
+# Windows PowerShell
+.venv\Scripts\Activate.ps1
+
+# macOS/Linux
+source .venv/bin/activate
+```
+
+Install dependencies and download the three frozen checkpoints:
+
+```bash
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+python scripts/download_models.py
+```
+
+Start the app:
+
+```bash
+streamlit run tools/demo_app.py
+```
+
+Then upload a fight video or enter a local path. The app finds a clear two-fighter frame and asks once which box is Fighter 1. After inference it displays the full annotated video, a window-by-window table, and download buttons for the video and JSON timeline.
+
+The app also offers the held-out fight automatically when its clips are available under `data/raw/Paddy Pimblett vs Michael Chandler/`. Raw videos are not included in Git because of size and broadcast copyright.
+
+## Command-line inference
+
+The same complete pipeline can run without Streamlit:
+
+```bash
+python scripts/infer.py \
+  --video path/to/fight.mp4 \
+  --f1-name "Fighter A" \
+  --f2-name "Fighter B"
+```
+
+The command opens or saves an A/B identity frame and asks which box is Fighter 1. For unattended inference, provide distinct shorts colors:
+
+```bash
+python scripts/infer.py \
+  --video path/to/fight.mp4 \
+  --f1-name "Fighter A" --f1-color black \
+  --f2-name "Fighter B" --f2-color red
+```
+
+The annotated MP4 and per-window JSON file are written beside the input unless `--out` is supplied. Audio is preserved when FFmpeg is available; `imageio-ffmpeg` supplies a compatible binary through the project dependencies.
+
+## Run the tests
+
+The tests cover overlays, identity assignment and abstention, fighter mapping, and video progress reporting. They do not require model checkpoints or the dataset.
+
+```bash
+pytest -q
+```
+
+To check that every command-line entry point loads correctly:
+
+```bash
+python scripts/infer.py --help
+python scripts/train_gate.py --help
+python scripts/train_phase.py --help
+```
+
+## Reproduce training and evaluation
+
+The labeled dataset contains 11 fights split into 1,159 live-fight clips and 156 excluded clips. Each clip is five seconds long. Labels are stored in CSV files with phase, pressure, and exclusion fields.
+
+```bash
+# Download labeled clips from the project Drive folder
+python scripts/download_data.py
+
+# Decode 16 frames per clip and build fighter-identity masks once
+python scripts/preprocess.py
+
+# Development cross-validation and frozen final gate
+python scripts/train_gate.py --folds all
+python scripts/train_gate.py --final
+
+# Selected phase and pressure experiments
+python scripts/train_phase.py --model r2plus1d
+python scripts/train_phase.py --model r2plus1d --task pressure
+
+# Train frozen deployment checkpoints after model selection
+python scripts/train_phase.py --model r2plus1d --run-name deployment_phase --final --final-epochs 8
+python scripts/train_phase.py --model r2plus1d --task pressure --run-name deployment_pressure --final --final-epochs 10
+
+# Summaries and end-to-end held-out evaluation
+python scripts/evaluate.py
+python scripts/evaluate_holdout_pipeline.py \
+  --phase outputs/phase/deployment_phase_holdout_preds.npz \
+  --pressure outputs/phase/deployment_pressure_holdout_preds.npz
+```
+
+All data splits are made by complete fight, never by random clip. The held-out fight is excluded from architecture selection, early stopping, threshold selection, ablations, and smoothing decisions.
+
+For the full experiment suite, use [notebooks/kaggle_full_experiments.ipynb](notebooks/kaggle_full_experiments.ipynb) with a Kaggle T4 GPU. [notebooks/colab_train.ipynb](notebooks/colab_train.ipynb) is a smaller launcher for the same scripts in Google Colab.
+
+## Repository structure
+
+```text
+mma-fight-analyzer/
+|-- README.md                    project overview and instructions
+|-- requirements.txt            Python dependencies
+|-- data/
+|   `-- fights_meta.csv          training-time fighter color metadata
+|-- docs/
+|   |-- TECHNICAL.md             models, tensors, training, and inference
+|   |-- DECISIONS.md             concise design rationale
+|   |-- EXPERIMENT_RESULTS_...md final quantitative results
+|   `-- PRESSURE_INVESTIGATION.md identity-supervision failure analysis
+|-- notebooks/
+|   |-- kaggle_full_experiments.ipynb
+|   `-- colab_train.ipynb
+|-- scripts/                     download, preprocess, train, evaluate, infer
+|-- src/mma/                     reusable datasets, models, tracking, pipeline
+|-- tests/                       fast automated tests
+`-- tools/
+    |-- demo_app.py              Streamlit inference demo
+    `-- labeler.py               annotation tool used to build the dataset
+```
+
+Generated material is intentionally excluded from Git:
+
+- `data/raw/` and `data/cache/`;
+- `outputs/`, checkpoints, predictions, and annotated videos;
+- uploaded videos and downloaded YOLO weights;
+- experiment ZIP files and Python caches.
+
+The three deployment checkpoints are published separately as GitHub Release assets and are placed in the expected `outputs/` paths by `scripts/download_models.py`.
+
+## Labels
+
+**Phase:** Striking; Grappling/Ground Work; Clinch; Transition/Takedown; Neutral/Measuring Distance.
+
+**Pressure:** Fighter 1; Fighter 2; Mutual.
+
+**Non-fight:** replay, walkout, round break, crowd shot, studio footage, or other broadcast material without live action.
+
+## Known limitations
+
+- Pressure direction generalizes less reliably than fight phase.
+- YOLOv8 may merge fighters or detect a referee during close grappling.
+- When identity evidence is ambiguous, the demo marks pressure as uncertain rather than showing a potentially swapped name.
+- The dataset is modest and contains UFC-style broadcast footage only.
+- Videos and labels are for academic research; this system is not intended for judging, officiating, betting, or safety decisions.
+
+## Additional documentation
+
+- [Technical documentation](docs/TECHNICAL.md)
+- [Design decisions](docs/DECISIONS.md)
+- [Final experiment results](docs/EXPERIMENT_RESULTS_2026-07-14.md)
+- [Pressure and identity investigation](docs/PRESSURE_INVESTIGATION.md)
+
+The final written report contains the ethics statement required by the course template.

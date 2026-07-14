@@ -14,14 +14,14 @@ import numpy as np
 COLOR_RANGES = {
     # red needs S>=140: dark-skin pixels sit at H<12 with S up to ~130 and were
     # polluting the red evidence on shirtless fighters
-    "red":    [((0, 140, 60), (12, 255, 255)), ((168, 140, 60), (180, 255, 255))],
-    "blue":   [((100, 60, 50), (135, 255, 255))],
-    "black":  [((0, 0, 0), (180, 100, 70))],
+    "red": [((0, 140, 60), (12, 255, 255)), ((168, 140, 60), (180, 255, 255))],
+    "blue": [((100, 60, 50), (135, 255, 255))],
+    "black": [((0, 0, 0), (180, 100, 70))],
     # white allows V>=150: arena shadows push white shorts well below V=180
-    "white":  [((0, 0, 150), (180, 60, 255))],
-    "green":  [((35, 60, 50), (85, 255, 255))],
-    "gold":   [((15, 60, 50), (35, 255, 255))],
-    "gray":   [((0, 0, 50), (180, 50, 180))],
+    "white": [((0, 0, 150), (180, 60, 255))],
+    "green": [((35, 60, 50), (85, 255, 255))],
+    "gold": [((15, 60, 50), (35, 255, 255))],
+    "gray": [((0, 0, 50), (180, 50, 180))],
     "orange": [((10, 60, 50), (20, 255, 255))],
     "purple": [((130, 60, 50), (165, 255, 255))],
 }
@@ -31,6 +31,7 @@ MIN_PROPAGATION_IOU = 0.2
 
 def load_yolo(weights="yolov8n.pt"):
     from ultralytics import YOLO  # heavy import, keep lazy
+
     return YOLO(weights)
 
 
@@ -52,15 +53,17 @@ def iou(a, b):
     ix1, iy1 = max(a[0], b[0]), max(a[1], b[1])
     ix2, iy2 = min(a[2], b[2]), min(a[3], b[3])
     inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
-    union = ((a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter)
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
     return inter / union if union > 0 else 0.0
 
 
 def get_shorts_region(hsv, box):
     x1, y1, x2, y2 = box
     h, w = y2 - y1, x2 - x1
-    return hsv[max(0, y1 + int(h * 0.35)):min(hsv.shape[0], y1 + int(h * 0.60)),
-               max(0, x1 + int(w * 0.15)):min(hsv.shape[1], x2 - int(w * 0.15))]
+    return hsv[
+        max(0, y1 + int(h * 0.35)) : min(hsv.shape[0], y1 + int(h * 0.60)),
+        max(0, x1 + int(w * 0.15)) : min(hsv.shape[1], x2 - int(w * 0.15)),
+    ]
 
 
 def classify_shorts_color(hsv_crop):
@@ -118,8 +121,8 @@ def _complete_pair(boxes, f1b, f2b):
 
 
 TRACK_LINK_IOU = 0.25
-CLIP_DECISION_MARGIN = 0.03    # min clip-aggregated evidence gap between pairings
-SINGLE_TRACK_MARGIN = 0.08     # stricter: no differential cancellation with one track
+CLIP_DECISION_MARGIN = 0.03  # min clip-aggregated evidence gap between pairings
+SINGLE_TRACK_MARGIN = 0.08  # stricter: no differential cancellation with one track
 JUNK_TRACK_AREA_FRACTION = 0.2  # 2nd track smaller than this vs 1st = crowd/referee
 
 
@@ -145,7 +148,7 @@ def _link_tracks(dets):
     return tracks
 
 
-def assign_identities(frames_bgr, dets, f1_color, f2_color):
+def assign_identities(frames_bgr, dets, f1_color, f2_color, return_info=False):
     """Per-frame (f1_box, f2_box) assignment with a CLIP-LEVEL identity decision.
 
     Detections are linked into tracks across the clip; color evidence is
@@ -163,42 +166,61 @@ def assign_identities(frames_bgr, dets, f1_color, f2_color):
             hsvs[t] = cv2.cvtColor(frames_bgr[t], cv2.COLOR_BGR2HSV)
         return hsvs[t]
 
-    tracks = sorted(_link_tracks(dets),
-                    key=lambda tr: sum((b[2] - b[0]) * (b[3] - b[1]) for b in tr.values()),
-                    reverse=True)
+    tracks = sorted(
+        _link_tracks(dets),
+        key=lambda tr: sum((b[2] - b[0]) * (b[3] - b[1]) for b in tr.values()),
+        reverse=True,
+    )
     track_a = tracks[0] if tracks else {}
     track_b = tracks[1] if len(tracks) > 1 else {}
 
     def mean_area(track):
-        return (sum((b[2] - b[0]) * (b[3] - b[1]) for b in track.values()) / len(track)
-                if track else 0.0)
+        return (
+            sum((b[2] - b[0]) * (b[3] - b[1]) for b in track.values()) / len(track)
+            if track
+            else 0.0
+        )
 
+    second_track_rejected = False
     if track_b and mean_area(track_b) < JUNK_TRACK_AREA_FRACTION * mean_area(track_a):
         track_b = {}  # crowd/referee fragment, never a pairing partner
+        second_track_rejected = True
 
     def mean_ratio(track, color):
         total = sum(color_ratio(_hsv(t), box, color) for t, box in track.items())
         return total / len(track) if track else 0.0
 
     f1_track, f2_track = {}, {}
+    decision, margin = "abstain", 0.0
     if track_b:
         straight = mean_ratio(track_a, f1_color) + mean_ratio(track_b, f2_color)
         swapped = mean_ratio(track_a, f2_color) + mean_ratio(track_b, f1_color)
-        if abs(straight - swapped) > CLIP_DECISION_MARGIN:
-            f1_track, f2_track = (track_a, track_b) if straight > swapped else (track_b, track_a)
+        margin = abs(straight - swapped)
+        if margin > CLIP_DECISION_MARGIN:
+            f1_track, f2_track = (
+                (track_a, track_b) if straight > swapped else (track_b, track_a)
+            )
+            decision = "comparative_color"
     elif track_a:
         # single usable track: identify it alone; merged fighter-pair boxes carry
         # BOTH colors and abstain here on purpose
         ra, rb = mean_ratio(track_a, f1_color), mean_ratio(track_a, f2_color)
+        margin = abs(ra - rb)
         if ra - rb > SINGLE_TRACK_MARGIN:
             f1_track = track_a
+            decision = "single_track_color"
         elif rb - ra > SINGLE_TRACK_MARGIN:
             f2_track = track_a
+            decision = "single_track_color"
 
     if f1_track or f2_track:
         complete = bool(f1_track) and bool(f2_track)
-        assigns = [_complete_pair(dets[t], f1_track.get(t), f2_track.get(t)) if complete
-                   else (f1_track.get(t), f2_track.get(t)) for t in range(n)]
+        assigns = [
+            _complete_pair(dets[t], f1_track.get(t), f2_track.get(t))
+            if complete
+            else (f1_track.get(t), f2_track.get(t))
+            for t in range(n)
+        ]
     else:
         assigns = [(None, None)] * n  # no reliable evidence -> zero masks
 
@@ -222,6 +244,26 @@ def assign_identities(frames_bgr, dets, f1_color, f2_color):
                     assigns[t] = _complete_pair(dets[t], f1b, f2b)
             if assigns[t][0] is not None or assigns[t][1] is not None:
                 prev = assigns[t]
+    if return_info:
+        reason = None
+        if decision == "abstain":
+            if second_track_rejected:
+                reason = "junk_second_track"
+            elif track_b:
+                reason = "low_color_margin"
+            elif track_a:
+                reason = "single_or_merged_track"
+            else:
+                reason = "no_tracks"
+        return assigns, {
+            "decision": decision,
+            "reason": reason,
+            "margin": float(margin),
+            "complete": bool(f1_track) and bool(f2_track),
+            "confident": bool(f1_track) or bool(f2_track),
+            "track_a": track_a,
+            "track_b": track_b,
+        }
     return assigns
 
 
@@ -234,12 +276,20 @@ def build_masks(frame_hw, assigns, out_hw):
     for t, (f1b, f2b) in enumerate(assigns):
         m = masks[t]
         if f1b is not None:
-            x1, y1, x2, y2 = (int(f1b[0] * sx), int(f1b[1] * sy),
-                              int(f1b[2] * sx), int(f1b[3] * sy))
+            x1, y1, x2, y2 = (
+                int(f1b[0] * sx),
+                int(f1b[1] * sy),
+                int(f1b[2] * sx),
+                int(f1b[3] * sy),
+            )
             m[y1:y2, x1:x2] = 1
         if f2b is not None:
-            x1, y1, x2, y2 = (int(f2b[0] * sx), int(f2b[1] * sy),
-                              int(f2b[2] * sx), int(f2b[3] * sy))
+            x1, y1, x2, y2 = (
+                int(f2b[0] * sx),
+                int(f2b[1] * sy),
+                int(f2b[2] * sx),
+                int(f2b[3] * sy),
+            )
             region = m[y1:y2, x1:x2]
             m[y1:y2, x1:x2] = np.where(region == 1, 0, -1).astype(np.int8)
     return masks

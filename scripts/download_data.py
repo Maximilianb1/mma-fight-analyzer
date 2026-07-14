@@ -19,7 +19,7 @@ DRIVE_FOLDER_ID = "1bYKlbqa-Mu7UKUIez7EfxA7xtqWvXwyI"
 def normalize_extracted(extract_dir, out_dir):
     """Whatever the ZIP layout, end with data/raw/<Fight>/{clips,csv}."""
     for csv in Path(extract_dir).rglob("*_labels.csv"):
-        fight = csv.name[:-len("_labels.csv")]
+        fight = csv.name[: -len("_labels.csv")]
         dest = Path(out_dir) / fight
         dest.mkdir(parents=True, exist_ok=True)
         shutil.copy2(csv, dest / csv.name)
@@ -36,10 +36,13 @@ def main():
     args = p.parse_args()
 
     import gdown
+
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:
-        gdown.download_folder(id=args.folder_id, output=tmp, quiet=False, use_cookies=False)
+        gdown.download_folder(
+            id=args.folder_id, output=tmp, quiet=False, use_cookies=False
+        )
         zips = sorted(Path(tmp).rglob("*.zip"))
         print(f"downloaded {len(zips)} archives")
         for z in zips:

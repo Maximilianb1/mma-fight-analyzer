@@ -43,16 +43,20 @@ def discover_clips(raw_dir, include_excluded=False):
             excluded = bool(r["excluded"])
             if excluded and not include_excluded:
                 continue
-            if not excluded and (pd.isna(r["phase_label"]) or pd.isna(r["pressure_label"])):
+            if not excluded and (
+                pd.isna(r["phase_label"]) or pd.isna(r["pressure_label"])
+            ):
                 continue
-            rows.append({
-                "fight": fight_dir.name,
-                "filename": r["saved_filename"],
-                "clip_path": str(fight_dir / r["saved_filename"]),
-                "phase_label": None if excluded else r["phase_label"],
-                "pressure_label": None if excluded else r["pressure_label"],
-                "excluded": excluded,
-            })
+            rows.append(
+                {
+                    "fight": fight_dir.name,
+                    "filename": r["saved_filename"],
+                    "clip_path": str(fight_dir / r["saved_filename"]),
+                    "phase_label": None if excluded else r["phase_label"],
+                    "pressure_label": None if excluded else r["pressure_label"],
+                    "excluded": excluded,
+                }
+            )
     if not rows:
         raise FileNotFoundError(f"no labeled fights found under {raw_dir}")
     return pd.DataFrame(rows)
@@ -76,17 +80,27 @@ def augment_clip(frames, mask, train, crop=C.CROP_SIZE):
     model sees is consistent between the two.
     """
     if train:
-        i, j, h, w = T.RandomResizedCrop.get_params(frames, scale=(0.6, 1.0), ratio=(4 / 3, 16 / 9))
+        i, j, h, w = T.RandomResizedCrop.get_params(
+            frames, scale=(0.6, 1.0), ratio=(4 / 3, 16 / 9)
+        )
         frames = TF.resized_crop(frames, i, j, h, w, [crop, crop], antialias=True)
         if mask is not None:
-            mask = TF.resized_crop(mask, i, j, h, w, [crop, crop],
-                                   interpolation=TF.InterpolationMode.NEAREST)
+            mask = TF.resized_crop(
+                mask,
+                i,
+                j,
+                h,
+                w,
+                [crop, crop],
+                interpolation=TF.InterpolationMode.NEAREST,
+            )
         if torch.rand(()) < 0.5:
             frames = TF.hflip(frames)
             if mask is not None:
                 mask = TF.hflip(mask)
         order, b, c, s, hue = T.ColorJitter.get_params(
-            (0.7, 1.3), (0.7, 1.3), (0.7, 1.3), (-0.03, 0.03))
+            (0.7, 1.3), (0.7, 1.3), (0.7, 1.3), (-0.03, 0.03)
+        )
         for fn_id in order:
             if fn_id == 0 and b is not None:
                 frames = TF.adjust_brightness(frames, b)
@@ -99,8 +113,9 @@ def augment_clip(frames, mask, train, crop=C.CROP_SIZE):
     else:
         frames = TF.resize(frames, [crop, crop], antialias=True)
         if mask is not None:
-            mask = TF.resize(mask, [crop, crop],
-                             interpolation=TF.InterpolationMode.NEAREST)
+            mask = TF.resize(
+                mask, [crop, crop], interpolation=TF.InterpolationMode.NEAREST
+            )
     return frames, mask
 
 
@@ -119,8 +134,12 @@ class PhaseClipDataset(Dataset):
 
     def __getitem__(self, idx):
         row = self.records.iloc[idx]
-        frames_np, mask_np = load_cached_clip(cache_path(self.cache_dir, row.fight, row.filename))
-        frames = torch.from_numpy(frames_np).float().div_(255).permute(0, 3, 1, 2)  # (T,3,H,W)
+        frames_np, mask_np = load_cached_clip(
+            cache_path(self.cache_dir, row.fight, row.filename)
+        )
+        frames = (
+            torch.from_numpy(frames_np).float().div_(255).permute(0, 3, 1, 2)
+        )  # (T,3,H,W)
         mask = torch.from_numpy(mask_np).float().unsqueeze(1) if self.use_mask else None
         frames, mask = augment_clip(frames, mask, self.train)
         frames = TF.normalize(frames, self.mean, self.std)
@@ -133,14 +152,23 @@ class PhaseClipDataset(Dataset):
 class GateFrameDataset(Dataset):
     """Single frames labeled 1=excluded (replay/walkout/break) / 0=live fight."""
 
-    def __init__(self, records, cache_dir, train, mean=None, std=None,
-                 frames_per_clip=C.GATE_FRAMES):
+    def __init__(
+        self,
+        records,
+        cache_dir,
+        train,
+        mean=None,
+        std=None,
+        frames_per_clip=C.GATE_FRAMES,
+    ):
         self.records = records.reset_index(drop=True)
         self.cache_dir = cache_dir
         self.train = train
         self.mean = mean or C.IMAGENET_MEAN
         self.std = std or C.IMAGENET_STD
-        self.slots = np.linspace(0, C.NUM_FRAMES - 1, frames_per_clip).round().astype(int)
+        self.slots = (
+            np.linspace(0, C.NUM_FRAMES - 1, frames_per_clip).round().astype(int)
+        )
         self.items = [(i, s) for i in range(len(self.records)) for s in self.slots]
 
     def __len__(self):
@@ -149,8 +177,16 @@ class GateFrameDataset(Dataset):
     def __getitem__(self, idx):
         rec_i, slot = self.items[idx]
         row = self.records.iloc[rec_i]
-        frames_np, _ = load_cached_clip(cache_path(self.cache_dir, row.fight, row.filename))
-        frame = torch.from_numpy(frames_np[slot]).float().div_(255).permute(2, 0, 1).unsqueeze(0)
+        frames_np, _ = load_cached_clip(
+            cache_path(self.cache_dir, row.fight, row.filename)
+        )
+        frame = (
+            torch.from_numpy(frames_np[slot])
+            .float()
+            .div_(255)
+            .permute(2, 0, 1)
+            .unsqueeze(0)
+        )
         frame, _ = augment_clip(frame, None, self.train)
         frame = TF.normalize(frame, self.mean, self.std).squeeze(0)
         return frame, np.float32(row.excluded)
@@ -165,22 +201,38 @@ class GateClipDataset(Dataset):
     starved on Kaggle.
     """
 
-    def __init__(self, records, cache_dir, train, mean=None, std=None,
-                 frames_per_clip=C.GATE_FRAMES):
+    def __init__(
+        self,
+        records,
+        cache_dir,
+        train,
+        mean=None,
+        std=None,
+        frames_per_clip=C.GATE_FRAMES,
+    ):
         self.records = records.reset_index(drop=True)
         self.cache_dir = cache_dir
         self.train = train
         self.mean = mean or C.IMAGENET_MEAN
         self.std = std or C.IMAGENET_STD
-        self.slots = np.linspace(0, C.NUM_FRAMES - 1, frames_per_clip).round().astype(int)
+        self.slots = (
+            np.linspace(0, C.NUM_FRAMES - 1, frames_per_clip).round().astype(int)
+        )
 
     def __len__(self):
         return len(self.records)
 
     def __getitem__(self, idx):
         row = self.records.iloc[idx]
-        frames_np, _ = load_cached_clip(cache_path(self.cache_dir, row.fight, row.filename))
-        frames = torch.from_numpy(frames_np[self.slots]).float().div_(255).permute(0, 3, 1, 2)
+        frames_np, _ = load_cached_clip(
+            cache_path(self.cache_dir, row.fight, row.filename)
+        )
+        frames = (
+            torch.from_numpy(frames_np[self.slots])
+            .float()
+            .div_(255)
+            .permute(0, 3, 1, 2)
+        )
         frames, _ = augment_clip(frames, None, self.train)
         frames = TF.normalize(frames, self.mean, self.std)
         return frames, np.float32(row.excluded)

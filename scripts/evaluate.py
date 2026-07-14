@@ -1,7 +1,7 @@
 """Compare the trained models: prints a summary table and saves a comparison chart.
 
-  python scripts/evaluate.py            # expects both r2plus1d and lstm metrics
-  python scripts/evaluate.py --models r2plus1d
+python scripts/evaluate.py            # expects both r2plus1d and lstm metrics
+python scripts/evaluate.py --models r2plus1d
 """
 
 import argparse
@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
@@ -33,13 +34,17 @@ def main():
     if not results:
         return
 
-    print(f"\n{'model':<10} {'phase F1':>9} {'phase acc':>10} {'press F1':>9} {'press acc':>10}")
+    print(
+        f"\n{'model':<10} {'phase F1':>9} {'phase acc':>10} {'press F1':>9} {'press acc':>10}"
+    )
     for m, r in results.items():
         ph, pr = r.get("phase", {}), r.get("pressure", {})
-        print(f"{m:<10} {ph.get('macro_f1', float('nan')):>9.3f} "
-              f"{ph.get('accuracy', float('nan')):>10.3f} "
-              f"{pr.get('macro_f1', float('nan')):>9.3f} "
-              f"{pr.get('accuracy', float('nan')):>10.3f}")
+        print(
+            f"{m:<10} {ph.get('macro_f1', float('nan')):>9.3f} "
+            f"{ph.get('accuracy', float('nan')):>10.3f} "
+            f"{pr.get('macro_f1', float('nan')):>9.3f} "
+            f"{pr.get('accuracy', float('nan')):>10.3f}"
+        )
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
     for ax, task in zip(axes, ("phase", "pressure")):

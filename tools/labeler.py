@@ -17,13 +17,14 @@ PHASE_LABELS = [
     "Grappling/Ground Work",
     "Clinch",
     "Transition/Takedown",
-    "Neutral/Measuring Distance"
+    "Neutral/Measuring Distance",
 ]
 
 st.set_page_config(layout="wide", page_title="MMA Phase Annotator")
 
 # Inject Custom CSS to blow up the font sizes for scannability
-st.markdown("""
+st.markdown(
+    """
     <style>
     div[data-testid="stRadio"] label [data-testid="stMarkdownContainer"] p {
         font-size: 22px !important;
@@ -39,7 +40,10 @@ st.markdown("""
         font-size: 18px !important;
     }
     </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
+
 
 # ==========================================
 # HELPER FUNCTIONS
@@ -52,23 +56,32 @@ def get_video_duration(path):
         return 0
     return frame_count / fps
 
+
 def extract_clip(input_video, start_time, duration, output_path):
     if os.path.exists(output_path):
         return
-    
+
     command = [
         "ffmpeg",
-        "-ss", str(start_time),
-        "-i", input_video,
-        "-t", str(duration),
-        "-c:v", "libx264",
-        "-preset", "ultrafast", 
-        "-crf", "23",
-        "-c:a", "aac",
-        "-y", 
-        output_path
+        "-ss",
+        str(start_time),
+        "-i",
+        input_video,
+        "-t",
+        str(duration),
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-crf",
+        "23",
+        "-c:a",
+        "aac",
+        "-y",
+        output_path,
     ]
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
 
 # ==========================================
 # APPLICATION LOGIC
@@ -80,10 +93,14 @@ if not os.path.exists(VIDEO_DIR):
 if not os.path.exists(OUTPUT_CLIPS_DIR):
     os.makedirs(OUTPUT_CLIPS_DIR)
 
-available_fights = [f for f in os.listdir(VIDEO_DIR) if f.endswith(('.mp4', '.mkv', '.avi'))]
+available_fights = [
+    f for f in os.listdir(VIDEO_DIR) if f.endswith((".mp4", ".mkv", ".avi"))
+]
 
 if not available_fights:
-    st.info(f"Please drop your full fight MP4 videos inside the `{VIDEO_DIR}/` directory to begin.")
+    st.info(
+        f"Please drop your full fight MP4 videos inside the `{VIDEO_DIR}/` directory to begin."
+    )
     st.stop()
 
 selected_fight = st.sidebar.selectbox("Select Fight Video", available_fights)
@@ -105,7 +122,7 @@ f2_identity = st.sidebar.text_input("Fighter 2 (Right on screen)", "Fighter 2")
 PRESSURE_OPTIONS_DISPLAY = [
     f"🔴 {f1_identity} Applying Pressure",
     f"🔵 {f2_identity} Applying Pressure",
-    "⚪ Mutual / Equal Pressure"
+    "⚪ Mutual / Equal Pressure",
 ]
 
 total_duration = get_video_duration(video_path)
@@ -114,17 +131,29 @@ max_clips = int(total_duration // CLIP_DURATION)
 if os.path.exists(csv_path):
     df_labels = pd.read_csv(csv_path)
 else:
-    df_labels = pd.DataFrame(columns=[
-        "clip_index", "start_time", "end_time", 
-        "phase_label", "pressure_label", "excluded", "saved_filename"
-    ])
+    df_labels = pd.DataFrame(
+        columns=[
+            "clip_index",
+            "start_time",
+            "end_time",
+            "phase_label",
+            "pressure_label",
+            "excluded",
+            "saved_filename",
+        ]
+    )
 
-if "clip_idx" not in st.session_state or st.session_state.get("current_fight") != selected_fight:
-    st.session_state.clip_idx = len(df_labels) 
+if (
+    "clip_idx" not in st.session_state
+    or st.session_state.get("current_fight") != selected_fight
+):
+    st.session_state.clip_idx = len(df_labels)
     st.session_state.current_fight = selected_fight
 
 if st.session_state.clip_idx >= max_clips:
-    st.success(f"🎉 Fully labeled! All {max_clips} clips processed for {selected_fight}.")
+    st.success(
+        f"🎉 Fully labeled! All {max_clips} clips processed for {selected_fight}."
+    )
     st.stop()
 
 current_start = st.session_state.clip_idx * CLIP_DURATION
@@ -145,7 +174,9 @@ with st.spinner("Cutting clip..."):
 col_video, col_controls = st.columns([1.6, 1])
 
 with col_video:
-    st.subheader(f"Clip {st.session_state.clip_idx + 1} / {max_clips} ({current_start}s - {current_end}s)")
+    st.subheader(
+        f"Clip {st.session_state.clip_idx + 1} / {max_clips} ({current_start}s - {current_end}s)"
+    )
     if os.path.exists(temp_clip_path):
         with open(temp_clip_path, "rb") as video_file:
             video_bytes = video_file.read()
@@ -155,13 +186,13 @@ with col_video:
 
 with col_controls:
     st.subheader("Annotation Matrix")
-    
+
     with st.form("annotation_form", clear_on_submit=False):
         phase_choice = st.radio("1. Action Phase Class", PHASE_LABELS)
         st.write("---")
         pressure_choice = st.radio("2. Pressure Dynamics", PRESSURE_OPTIONS_DISPLAY)
         st.write("---")
-        
+
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
             submit_btn = st.form_submit_button("💾 Save & Next", type="primary")
@@ -199,12 +230,12 @@ if submit_btn or skip_btn:
         "phase_label": "None" if skip_btn else phase_choice,
         "pressure_label": final_pressure,
         "excluded": True if skip_btn else False,
-        "saved_filename": clip_filename  # Tracking the exact file link
+        "saved_filename": clip_filename,  # Tracking the exact file link
     }
-    
+
     df_labels = pd.concat([df_labels, pd.DataFrame([new_row])], ignore_index=True)
     df_labels.to_csv(csv_path, index=False)
-        
+
     st.session_state.clip_idx += 1
     st.rerun()
 
@@ -219,15 +250,15 @@ if len(df_labels) > 0 and st.sidebar.button("↩️ Undo Last Label"):
     last_row = df_labels.iloc[-1]
     last_filename = last_row["saved_filename"]
     last_clip_filepath = os.path.join(fight_clips_folder, last_filename)
-    
+
     # Remove the physical video file to clean the folder layout
     if os.path.exists(last_clip_filepath):
         os.remove(last_clip_filepath)
-        
+
     # Drop from dataframe and save
     df_labels = df_labels.iloc[:-1]
     df_labels.to_csv(csv_path, index=False)
-    
+
     # Roll back counter state
     st.session_state.clip_idx = max(0, st.session_state.clip_idx - 1)
     if os.path.exists(temp_clip_path):

@@ -2,7 +2,6 @@
 
 This document explains **exactly** how the system works: every data transformation, every
 tensor shape, every model, and every decision rule — at training time and at inference time.
-A rendered version with diagrams is available at [technical.html](technical.html).
 
 Design rationale for each choice lives in [DECISIONS.md](DECISIONS.md); this file describes
 *what the system does*, not *why we chose it*.
@@ -28,9 +27,11 @@ Three learned models cooperate:
 | **Phase/Pressure A** | R(2+1)D-18 (Kinetics-400) | clip `(4,16,112,112)` | 5 phase logits + 3 pressure logits | `scripts/train_phase.py --model r2plus1d` |
 | **Phase/Pressure B** | ResNet-18 + 2-layer LSTM | clip `(4,16,112,112)` | 5 phase logits + 3 pressure logits | `scripts/train_phase.py --model lstm` |
 
-A and B are the two architectures compared in the report; the better one is deployed.
-One non-learned module — the **identity module** (YOLOv8 detection + shorts-color matching +
-temporal propagation) — produces the 4th input channel that tells the classifier *who is who*.
+A and B are the two main architectures compared in the report. R(2+1)D was selected for
+deployment: its multi-task checkpoint supplies phase, while a separately trained pressure-only
+checkpoint supplies pressure. One non-learned **identity module** (YOLOv8 detection,
+comparative shorts-color assignment, and temporal tracking) produces the 4th input channel that
+tells the classifier *who is who*.
 
 **Fighter 1 convention** (used consistently in labels, metadata, and the UI): the fighter whose
 name appears **left of the timer** in the broadcast bottom overlay. Fighter 2 is on the right.
@@ -324,42 +325,42 @@ Striking everywhere).
 
 ## 8. Inference pipeline (`scripts/infer.py` → `src/mma/pipeline.py`)
 
-One command: `python scripts/infer.py --video fight.mp4`. The video is processed **in a single
-pass** — no physical splitting/concatenation; windows are buffered in memory and written
-straight to the output writer.
+`python scripts/infer.py --video fight.mp4` processes the source in one pass. The Streamlit
+interface calls the same `FightAnalyzer` class and adds upload, progress, preview, and download
+controls.
 
 Per 5-second window (`win_len = round(fps·5)` frames, last partial window included):
 
-1. **Sample** 16 frames (`linspace` over the window).
-2. **Gate**: 4 of the 16 → resize 112² → ResNet-18 → mean sigmoid = P(non-fight). If above the
-   stored threshold: stamp `NON-FIGHT SEGMENT (replay / break)` on the window, write frames,
-   skip steps 3–6.
-3. **Detect & track**: YOLOv8 on the 16 frames → per-frame top-2 person boxes → greedy IoU
-   linker (`iou > 0.3` joins a track, else a new track starts) → tracks ranked by cumulative
-   box area → top 2 are the fighters.
-4. **Identity**:
-   - *Bootstrap (once per video):* interactive mode saves `identity_prompt.png` with boxes
-     A/B (and shows a window if a display exists) and asks in the terminal which box is
-     Fighter 1; non-interactive mode matches track shorts colors against `--f1-color/--f2-color`.
-   - *Every window after:* each track's **HSV appearance histogram** (H×S, 30×32 bins, over the
-     torso+shorts region, averaged over the track) is compared to two stored **anchors** via
-     Bhattacharyya similarity; the straight-vs-swapped assignment with higher total similarity
-     wins. Appearance survives camera cuts, so identity does too.
-   - *Anchor update:* `anchor ← 0.85·anchor + 0.15·current` (EMA) — adapts to sweat/lighting
-     drift while staying stable against a single bad window.
-5. **Classify**: build the ±1 mask from the assigned boxes (same rasterization as training),
-   resize frames to 112², normalize with the deployed model's stats, forward pass →
-   softmax → phase + pressure labels **with confidences**.
-6. **Overlay** (`src/mma/overlay.py`): F1/F2 boxes drawn on every frame — box coordinates are
-   linearly interpolated between sampled frames (`box(t) = (1-α)box(t_i) + α box(t_{i+1})`) so
-   they move smoothly; banner shows `Phase: Striking (81%)` and `Pressure: <name> (64%)`;
-   if phase confidence < 0.5 the banner dims to gray (uncertainty is shown, not hidden).
-7. **Write** all window frames to the output `VideoWriter`.
+1. **Sample:** choose 16 evenly spaced frames.
+2. **Gate:** four sampled frames are resized to 112² and passed through ResNet-18. Their mean
+   sigmoid value is P(non-fight). A window above the checkpoint's frozen threshold is labeled
+   non-fight and skips the downstream classifiers.
+3. **Detect and link:** YOLOv8 detects at most two person boxes per sampled frame. Greedy IoU
+   linking forms short tracks, which are ranked by cumulative box area.
+4. **Assign identity:**
+   - A one-time A/B prompt states which detected track is Fighter 1. Alternatively, both shorts
+     colors can be supplied for unattended inference.
+   - When two colors are known, the same comparative, non-skin color assignment used during
+     preprocessing runs on every window. It scores the straight and swapped pairings across
+     both complete tracks and requires a minimum evidence margin.
+   - Trusted two-track assignments update appearance and final-position anchors. Temporal
+     appearance plus boundary IoU is only used when two sufficiently long, separated tracks
+     exist and the straight-vs-swapped margin is clear.
+   - A single visible fighter may be identified by color but does not update both anchors.
+     Merged boxes, high overlap, weak color evidence, and low temporal margins abstain. This
+     prevents uncertain grappling frames from changing fighter identity.
+5. **Classify:** the assigned boxes become the ±1 identity mask. The deployed multi-task
+   R(2+1)D checkpoint supplies phase, and a pressure-only R(2+1)D checkpoint supplies pressure.
+6. **Check pressure reliability:** pressure is named only when identity is available for both
+   fighters in at least 25% of sampled frames. Otherwise the overlay says that pressure is
+   uncertain, while phase remains visible.
+7. **Overlay and write:** boxes are linearly interpolated between sampled frames. Every frame
+   receives the fight status, phase, pressure (when reliable), and confidence values.
 
-After the last window: the original audio track is remuxed onto the annotated video with ffmpeg
-(best-effort; silently skipped if ffmpeg is unavailable), and a JSON log is written next to the
-output video with one record per window: `{window, start_s, gate_prob_excluded, excluded,
-phase, pressure, phase_conf, pressure_conf}`.
+After the last window, FFmpeg remuxes the original audio. The Streamlit path also converts the
+video to browser-compatible H.264 and enables fast start. A JSON timeline records gate,
+classification, identity method, identity margin, identity coverage, and reliability for every
+window.
 
 ---
 
@@ -386,6 +387,7 @@ phase, pressure, phase_conf, pressure_conf}`.
 ## 10. CLI quick reference
 
 ```bash
+python scripts/download_models.py                       # frozen demo checkpoints
 python scripts/download_data.py                         # Drive → data/raw
 python scripts/preprocess.py [--yolo-conf 0.35]         # → data/cache  (once)
 python scripts/train_gate.py --folds all                # 5-fold development OOF
@@ -393,7 +395,8 @@ python scripts/train_gate.py --final                    # dev train + one-shot h
 python scripts/train_phase.py --model {r2plus1d,lstm}   # 5-fold development CV
         [--task both|phase|pressure] [--no-mask] [--lofo] [--folds 0,2]
         [--k 5] [--epochs 25] [--batch-size N] [--pressure-weight 0.5]
-python scripts/train_phase.py --model r2plus1d --final  # dev model + holdout test
+python scripts/train_phase.py --model r2plus1d --run-name deployment_phase --final --final-epochs 8
+python scripts/train_phase.py --model r2plus1d --task pressure --run-name deployment_pressure --final --final-epochs 10
 python scripts/evaluate.py [--models r2plus1d,lstm]     # comparison chart
 python scripts/infer.py --video f.mp4 [--f1-name X --f2-name Y]
         [--f1-color red --f2-color black]               # non-interactive identity
