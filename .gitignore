@@ -19,6 +19,7 @@ data/cache/
 data/Unseen fights/
 outputs/
 tmp/
+report/build/
 *.log
 *.pt
 *.npz

@@ -1,0 +1,10 @@
+model,phase_macro_f1,pressure_macro_f1
+R(2+1)D multi-task,0.6624526264587935,0.40353118693826656
+MC3 multi-task,0.656218,0.421375
+R3D multi-task,0.630982,0.430830
+R(2+1)D phase-only,0.635877,
+R(2+1)D pressure-only,,0.4364820057662661
+Pressure-only without identity mask,,0.422717
+Pressure-only hierarchical head,,0.406618
+Multi-task learning rate 1e-4,0.650137,0.406186
+Multi-task pressure weight 1.0,0.631856,0.397709
