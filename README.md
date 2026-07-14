@@ -192,6 +192,7 @@ The three deployment checkpoints are published separately as GitHub Release asse
 ## Known limitations
 
 - Pressure direction generalizes less reliably than fight phase.
+- Due to time constraints, the phase and pressure labels were assigned by one annotator. Subjective decisions—especially who is applying pressure—may therefore reflect that annotator's judgment, and inter-annotator agreement was not measured.
 - YOLOv8 may merge fighters or detect a referee during close grappling.
 - When identity evidence is ambiguous, the demo marks pressure as uncertain rather than showing a potentially swapped name.
 - The dataset is modest and contains UFC-style broadcast footage only.
