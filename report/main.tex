@@ -249,7 +249,7 @@ The Streamlit application executes the same frozen pipeline on the held-out clip
 \section{Qualitative Explainability Analysis}
 \small
 
-We used Gradient-weighted Class Activation Mapping (Grad-CAM) to inspect which image regions support the phase model's class score \cite{selvaraju2017gradcam}. Grad-CAM weights convolutional feature maps by the gradient of a selected class score and returns a coarse, class-specific localization map. For our spatiotemporal model, the resulting maps can be overlaid on frames sampled throughout a five-second clip. Red and yellow denote stronger positive support for the displayed phase score; blue denotes weaker support. These maps explain spatial sensitivity, not the complete temporal decision rule.
+We used EigenGradCAM, as implemented by Gildenblat et al. \cite{gildenblat2021cam}, to inspect which image regions support the phase model's class score. This Grad-CAM variant projects activation--gradient products onto their first principal component, producing a class-specific localization volume \cite{selvaraju2017gradcam}. We target the final blocks of backbone layers 3 and 4 and average their resized maps. Red and yellow denote stronger positive support for the displayed phase score; blue denotes weaker support. The supplied script searched up to 40 labeled clips per phase and retained the highest-confidence correct prediction; its candidate pool was not restricted to unseen clips. These selected examples are therefore diagnostics, not evaluation results.
 
 Figure~\ref{fig:gradcam-phase} shows one high-confidence example for each predicted phase. Activation generally overlaps the fighters or their interaction region: Grappling/Ground Work and Clinch concentrate on coupled upper bodies, while Transition/Takedown emphasizes grounded contact. However, Striking and Neutral/Measuring Distance also activate around the lower frame, including the timer and mat graphics. This suggests a possible broadcast-context shortcut in addition to fighter motion, although the maps do not quantify its effect. Figure~\ref{fig:gradcam-time} follows representative clips across eight sampled times. Hotspots move as the fighters change position and often remain centered on their interaction, while sometimes spreading over the cage, canvas, and overlay.
 
@@ -257,13 +257,13 @@ We therefore treat Grad-CAM as a diagnostic, not evidence of human-like MMA reas
 
 \begin{center}
   \includegraphics[width=0.80\textwidth]{figures/gradcam_by_phase.png}
-  \captionof{figure}{Phase-conditioned Grad-CAM examples. Each column shows an input frame (top) and its heatmap overlay (bottom). The displayed confidence is the model's score for the predicted phase; it should not be interpreted as calibrated reliability.}
+  \captionof{figure}{Phase-conditioned EigenGradCAM examples. Each column shows an input frame (top) and its heatmap overlay (bottom). The displayed confidence is the model's score for the correctly predicted phase; it should not be interpreted as calibrated reliability.}
   \label{fig:gradcam-phase}
 \end{center}
 
 \begin{center}
   \includegraphics[width=0.73\textwidth]{figures/gradcam_temporal.png}
-  \captionof{figure}{Temporal Grad-CAM overlays at eight sampled times across representative five-second clips. The changing hotspot provides a qualitative view of where spatial evidence is located over time.}
+  \captionof{figure}{Temporal EigenGradCAM overlays at eight sampled times across representative five-second clips. Rows follow the phase order in Figure~\ref{fig:gradcam-phase}. The changing hotspot shows where spatial evidence is located over time.}
   \label{fig:gradcam-time}
 \end{center}
 

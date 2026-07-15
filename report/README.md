@@ -24,3 +24,14 @@ python report/scripts/generate_figures.py
 The numerical tables under `report/data/` were copied from the final saved experiment artifacts and independently verified against the prediction files.
 
 The Grad-CAM panels under `report/figures/` are qualitative diagnostic outputs. They are presented as selected examples rather than a quantitative localization evaluation; the report states their interpretation limits explicitly.
+
+To generate an audited EigenGradCAM analysis with the released phase checkpoint, run:
+
+```bash
+python scripts/download_data.py
+python scripts/preprocess.py
+python scripts/download_models.py
+python report/scripts/generate_explainability.py
+```
+
+The generator matches validation-time resizing, targets the displayed phase explicitly, and writes a JSON manifest with the checkpoint, candidate split, and selected clips. Its default `development` split contains training examples for the final deployment model; use `--candidate-split holdout` for a strictly unseen qualitative analysis, which may not contain a correct example for every class.
