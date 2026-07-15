@@ -22,3 +22,5 @@ python report/scripts/generate_figures.py
 ```
 
 The numerical tables under `report/data/` were copied from the final saved experiment artifacts and independently verified against the prediction files.
+
+The Grad-CAM panels under `report/figures/` are qualitative diagnostic outputs. They are presented as selected examples rather than a quantitative localization evaluation; the report states their interpretation limits explicitly.

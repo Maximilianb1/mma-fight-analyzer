@@ -244,19 +244,45 @@ The Streamlit application executes the same frozen pipeline on the held-out clip
   \label{fig:demo}
 \end{figure*}
 
+\clearpage
+\onecolumn
+\section{Qualitative Explainability Analysis}
+\small
+
+We used Gradient-weighted Class Activation Mapping (Grad-CAM) to inspect which image regions support the phase model's class score \cite{selvaraju2017gradcam}. Grad-CAM weights convolutional feature maps by the gradient of a selected class score and returns a coarse, class-specific localization map. For our spatiotemporal model, the resulting maps can be overlaid on frames sampled throughout a five-second clip. Red and yellow denote stronger positive support for the displayed phase score; blue denotes weaker support. These maps explain spatial sensitivity, not the complete temporal decision rule.
+
+Figure~\ref{fig:gradcam-phase} shows one high-confidence example for each predicted phase. Activation generally overlaps the fighters or their interaction region: Grappling/Ground Work and Clinch concentrate on coupled upper bodies, while Transition/Takedown emphasizes grounded contact. However, Striking and Neutral/Measuring Distance also activate around the lower frame, including the timer and mat graphics. This suggests a possible broadcast-context shortcut in addition to fighter motion, although the maps do not quantify its effect. Figure~\ref{fig:gradcam-time} follows representative clips across eight sampled times. Hotspots move as the fighters change position and often remain centered on their interaction, while sometimes spreading over the cage, canvas, and overlay.
+
+We therefore treat Grad-CAM as a diagnostic, not evidence of human-like MMA reasoning. The examples are selected, there is no ground-truth saliency, the maps are coarse and non-causal, and they do not explain the separate pressure model. Follow-up work should evaluate the complete holdout and measure prediction changes when fighter, timer, and background regions are independently masked.
+
+\begin{center}
+  \includegraphics[width=0.80\textwidth]{figures/gradcam_by_phase.png}
+  \captionof{figure}{Phase-conditioned Grad-CAM examples. Each column shows an input frame (top) and its heatmap overlay (bottom). The displayed confidence is the model's score for the predicted phase; it should not be interpreted as calibrated reliability.}
+  \label{fig:gradcam-phase}
+\end{center}
+
+\begin{center}
+  \includegraphics[width=0.73\textwidth]{figures/gradcam_temporal.png}
+  \captionof{figure}{Temporal Grad-CAM overlays at eight sampled times across representative five-second clips. The changing hotspot provides a qualitative view of where spatial evidence is located over time.}
+  \label{fig:gradcam-time}
+\end{center}
+
+\normalsize
+\clearpage
+\twocolumn
 \section{Limitations, Conclusion, and Future Work}
 
 The strongest defensible result is a successful gate-and-phase pipeline. The fixed fight-level protocol prevents the most important source of visual leakage, and the system recognizes Striking and Grappling well. However, 11 fights remain a small domain-specific sample, the single-fight holdout has high variance, and rare classes make \macroF{} unstable. The single annotator introduces unmeasured subjectivity, particularly for pressure. Generic person detection also fails during occlusion: grappling can merge both fighters into one box or promote a referee/crowd region. Abstention prevents some identity inversions but reduces usable pressure information.
 
 Future work should collect more fights and multiple independent labels, report Cohen's $\kappa$ or a similar agreement measure, and define pressure with a stricter annotation rubric. A fighter-specific detector and learned re-identification/tracking model should replace generic YOLO person boxes and fixed color ranges. Longer context or explicit trajectories may help separate Neutral from Striking and stabilize directional pressure. The present system is suitable for academic indexing and explanation, not judging, officiating, betting, or safety-critical decisions.
 
-\clearpage
-\onecolumn
-
+\newpage
 \subsection{Project scope and proof of concept}
 
 This project deliberately pursued a broader scope than a single clip classifier. We created and labeled a task-specific dataset from scratch and connected broadcast-content filtering, spatiotemporal classification, fighter detection, identity assignment, temporal tracking, and audiovisual rendering into one runnable system. We did not find an existing dataset that jointly provides our five phase labels, directional pressure, non-fight examples, and fighter identity for UFC broadcasts. We therefore view the present system as an end-to-end proof of concept rather than a finished product. Its imperfect pressure results are important evidence of the remaining difficulty, while the functioning demo establishes that the complete pipeline is technically feasible. We believe that substantially more annotated fights, independent labels, stronger identity models, broader hyperparameter exploration, and greater compute could turn this concept into a useful video-indexing and analysis tool. We invite the course staff to run the included demo and assess the complete system alongside its measured limitations.
 
+\clearpage
+\onecolumn
 \section{Ethics Statement: Project Stakeholders and Implications Assessment}
 
 \noindent\textbf{1. Introduction}
@@ -295,6 +321,7 @@ The project authors are responsible for accurate documentation, model limitation
 
 \noindent\textbf{Maximilian Bershtman:} I feel like chatgpt covered the explanations in pretty ethical way but there are few stuff that can make the explanations more ethical. For example the ai could have methoined that the data set is small and nade by one person and maybe not relaible not only to the third group of steak holders but also to the other groups. also maybe it would be good to also mention that even the phase classification that worked better then the pressure classification is also not very realible because of the limitations of this research. \textbf{Reut Yosefa Vitzner:} The generative AI responses should include its confidence levels along with explanations of their known limitations, assumptions and biases. This would help stakeholders understand when the model is uncertain and avoid treating its predictions as factual. In addition, adding explanations regarding what influenced its decision making would help users evaluate the decision and understand it's source.
 
+\small
 \bibliographystyle{ieeetr}
 \bibliography{references}
 
