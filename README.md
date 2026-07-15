@@ -4,6 +4,8 @@ Deep-learning pipeline for recognizing fight footage, fight phase, and pressure 
 
 **Technion Deep Learning final project, Spring 2026** — Maximilian Bershtman and Reut Yosefa Vitzner
 
+**Project repository:** [github.com/Maximilianb1/mma-fight-analyzer](https://github.com/Maximilianb1/mma-fight-analyzer)
+
 The system reads a complete fight video in consecutive 5-second windows and produces an annotated video. Each window shows:
 
 - fight or non-fight footage;
@@ -114,6 +116,16 @@ The tests cover overlays, identity assignment and abstention, fighter mapping, a
 ```bash
 pytest -q
 ```
+
+## Build the Moodle code submission
+
+Do not ZIP this working directory directly: local datasets, checkpoints, and experiment outputs may be present even though Git ignores them. From a Git checkout, build the curated code-only archive with:
+
+```bash
+python scripts/build_code_submission.py
+```
+
+The command creates `mma-fight-analyzer-code-submission.zip` beside the repository. It contains the source code, tests, notebooks, metadata, documentation, and environment specification, while excluding datasets, trained weights, generated figures, videos, and other large artifacts.
 
 To check that every command-line entry point loads correctly:
 
