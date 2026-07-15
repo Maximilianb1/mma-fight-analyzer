@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import subprocess
+import sys
 import zipfile
 from pathlib import Path, PurePosixPath
 
@@ -103,6 +104,8 @@ def build_archive(output: Path) -> tuple[int, int]:
 
 
 def main() -> None:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="replace")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--output",
