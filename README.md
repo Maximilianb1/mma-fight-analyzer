@@ -192,11 +192,17 @@ The three deployment checkpoints are published separately as GitHub Release asse
 
 ## Labels
 
-**Phase:** Striking; Grappling/Ground Work; Clinch; Transition/Takedown; Neutral/Measuring Distance.
+**Fight/non-fight:** “Fight” means the window contains the live bout during an active round, including quiet circling or positional control. “Non-fight” means broadcast material outside the live action, such as a replay, walkout, introduction, between-round break, crowd shot, interview, or studio segment. It does not attempt to detect violence in arbitrary videos.
 
-**Pressure:** Fighter 1; Fighter 2; Mutual.
+**Phase** describes the main type of action:
 
-**Non-fight:** replay, walkout, round break, crowd shot, studio footage, or other broadcast material without live action.
+- **Striking:** an open-distance standing exchange dominated by punches or kicks.
+- **Grappling/Ground Work:** control, submissions, escapes, or strikes while fighting on the canvas.
+- **Clinch:** close upright body contact, often against the cage.
+- **Transition/Takedown:** a takedown attempt, throw, scramble, stand-up, or another change between positions.
+- **Neutral/Measuring Distance:** separated fighters circling, feinting, or probing without a committed exchange.
+
+**Pressure** describes who is imposing the initiative through forward movement, sustained attack, cage control, or positional control. It is not official scoring or a measure of damage. Labels are Fighter 1, Fighter 2, or Mutual when neither clearly controls the action.
 
 ## Known limitations
 
