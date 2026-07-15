@@ -4,6 +4,8 @@ Deep-learning pipeline for recognizing fight footage, fight phase, and pressure 
 
 **Technion Deep Learning final project, Spring 2026** — Maximilian Bershtman and Reut Yosefa Vitzner
 
+**Project repository:** [github.com/Maximilianb1/mma-fight-analyzer](https://github.com/Maximilianb1/mma-fight-analyzer)
+
 The system reads a complete fight video in consecutive 5-second windows and produces an annotated video. Each window shows:
 
 - fight or non-fight footage;
@@ -115,6 +117,16 @@ The tests cover overlays, identity assignment and abstention, fighter mapping, a
 pytest -q
 ```
 
+## Build the Moodle code submission
+
+Do not ZIP this working directory directly: local datasets, checkpoints, and experiment outputs may be present even though Git ignores them. From a Git checkout, build the curated code-only archive with:
+
+```bash
+python scripts/build_code_submission.py
+```
+
+The command creates `mma-fight-analyzer-code-submission.zip` beside the repository. It contains the source code, tests, notebooks, metadata, documentation, and environment specification, while excluding datasets, trained weights, generated figures, videos, and other large artifacts.
+
 To check that every command-line entry point loads correctly:
 
 ```bash
@@ -192,11 +204,17 @@ The three deployment checkpoints are published separately as GitHub Release asse
 
 ## Labels
 
-**Phase:** Striking; Grappling/Ground Work; Clinch; Transition/Takedown; Neutral/Measuring Distance.
+**Fight/non-fight:** “Fight” means the window contains the live bout during an active round, including quiet circling or positional control. “Non-fight” means broadcast material outside the live action, such as a replay, walkout, introduction, between-round break, crowd shot, interview, or studio segment. It does not attempt to detect violence in arbitrary videos.
 
-**Pressure:** Fighter 1; Fighter 2; Mutual.
+**Phase** describes the main type of action:
 
-**Non-fight:** replay, walkout, round break, crowd shot, studio footage, or other broadcast material without live action.
+- **Striking:** an open-distance standing exchange dominated by punches or kicks.
+- **Grappling/Ground Work:** control, submissions, escapes, or strikes while fighting on the canvas.
+- **Clinch:** close upright body contact, often against the cage.
+- **Transition/Takedown:** a takedown attempt, throw, scramble, stand-up, or another change between positions.
+- **Neutral/Measuring Distance:** separated fighters circling, feinting, or probing without a committed exchange.
+
+**Pressure** describes who is imposing the initiative through forward movement, sustained attack, cage control, or positional control. It is not official scoring or a measure of damage. Labels are Fighter 1, Fighter 2, or Mutual when neither clearly controls the action.
 
 ## Known limitations
 
